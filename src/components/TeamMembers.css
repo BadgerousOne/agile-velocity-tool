@@ -1,0 +1,188 @@
+.team-page { display: flex; flex-direction: column; gap: 24px; }
+
+.team-summary {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+.team-summary-item { display: flex; flex-direction: column; gap: 4px; }
+.ts-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.ts-value { font-size: 24px; font-weight: 700; color: var(--text-primary); }
+.ts-sub   { font-size: 11px; color: var(--text-muted); }
+
+/* ── Ramp-up info banner ── */
+.ramp-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: rgba(79,70,229,0.07);
+  border-color: rgba(79,70,229,0.3);
+}
+.ramp-info-icon  { font-size: 24px; flex-shrink: 0; margin-top: 2px; }
+.ramp-info-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.ramp-info-body  { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+.ramp-info-body strong { color: var(--text-secondary); }
+
+/* ── Member list ── */
+.member-list { display: flex; flex-direction: column; gap: 16px; }
+
+.member-card { transition: border-color 0.2s; }
+.member-card.editing { border-color: var(--primary); }
+
+.member-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.member-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+
+.member-info { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.member-name { font-size: 16px; font-weight: 600; }
+
+.member-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.member-name-input {
+  background: var(--bg-input);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 4px 10px;
+  width: 100%;
+  max-width: 280px;
+}
+.member-name-input:focus { outline: none; }
+
+.member-role-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 4px 10px;
+  max-width: 200px;
+  cursor: pointer;
+}
+.member-role-select:focus { outline: none; border-color: var(--primary); }
+
+.member-region-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 4px 10px;
+  max-width: 200px;
+  cursor: pointer;
+}
+.member-region-select:focus { outline: none; border-color: var(--primary); }
+
+/* Current allocation pill */
+.member-alloc-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid;
+  white-space: nowrap;
+  background: transparent;
+}
+
+.member-region-badge {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: rgba(79,70,229,0.09);
+  border: 1px solid rgba(79,70,229,0.2);
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+.member-region-badge.none {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.member-actions { display: flex; gap: 8px; margin-left: auto; }
+
+/* ── Allocation history sparkline ── */
+.member-alloc-history {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mah-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.mah-bars  { display: flex; align-items: flex-end; gap: 6px; }
+
+.mah-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+}
+.mah-bar-track {
+  width: 28px;
+  height: 48px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+.mah-bar-fill {
+  width: 100%;
+  border-radius: 4px;
+  transition: height 0.3s ease;
+  min-height: 2px;
+}
+.mah-bar-name {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* ── Holiday dot in sparkline ── */
+.mah-holiday-dot {
+  font-size: 11px;
+  line-height: 1;
+  cursor: default;
+}
+
+/* ── Empty state ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px;
+  gap: 8px;
+  text-align: center;
+}
+.empty-icon  { font-size: 40px; }
+.empty-title { font-size: 16px; font-weight: 600; color: var(--text-secondary); }
+.empty-sub   { font-size: 14px; color: var(--text-muted); }

@@ -1,0 +1,40 @@
+.velocity-page { display: flex; flex-direction: column; gap: 24px; }
+
+.vel-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.vel-kpi { display: flex; flex-direction: column; gap: 4px; }
+.vel-kpi-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.vel-kpi-value { font-size: 26px; font-weight: 700; }
+.vel-kpi-desc  { font-size: 12px; color: var(--text-secondary); }
+
+.chart-section { display: flex; flex-direction: column; gap: 12px; }
+.chart-title   { font-size: 16px; font-weight: 600; }
+.chart-sub     { font-size: 12px; color: var(--text-muted); margin-top: -6px; }
+
+.vel-table-wrap { overflow-x: auto; }
+.vel-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.vel-table th {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+.vel-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.vel-table tr:last-child td { border-bottom: none; }
+.vel-table tr:hover td { background: var(--bg-card-hover); }
