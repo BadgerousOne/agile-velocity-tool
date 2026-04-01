@@ -11,7 +11,7 @@
  * Chart: Committed vs Completed bars + Rolling Avg line + Adj. Velocity dashed line.
  * Latest sprint banner shows committed, completed, FTEs, PTO, support, other.
  */
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import {
   calcAverageVelocity, calcWeightedVelocity,
@@ -45,23 +45,31 @@ export default function Dashboard() {
   const { state } = useVelocity();
   const { sprints, teamMembers, sprintDurationDays, supportImpactFactor } = state;
 
-  const avg        = calcAverageVelocity(sprints);
-  const weighted   = calcWeightedVelocity(sprints);
-  const trend      = calcTrend(sprints);
-  const predict    = calcPredictability(sprints);
-  const chartData  = buildChartData(sprints, sprintDurationDays, supportImpactFactor);
-  const trendMeta  = TREND_META[trend];
+  const avg = useMemo(() => calcAverageVelocity(sprints), [sprints]);
+  const weighted = useMemo(() => calcWeightedVelocity(sprints), [sprints]);
+  const trend = useMemo(() => calcTrend(sprints), [sprints]);
+  const predict = useMemo(() => calcPredictability(sprints), [sprints]);
+  const chartData = useMemo(
+    () => buildChartData(sprints, sprintDurationDays, supportImpactFactor),
+    [sprints, sprintDurationDays, supportImpactFactor]
+  );
+  const adjVelocity = useMemo(
+    () => calcCapacityAdjustedVelocity(sprints, sprintDurationDays, supportImpactFactor),
+    [sprints, sprintDurationDays, supportImpactFactor]
+  );
+  const latestFTEs = useMemo(() => getLatestEffectiveFTEs(sprints), [sprints]);
 
-  const adjVelocity   = calcCapacityAdjustedVelocity(sprints, sprintDurationDays, supportImpactFactor);
-  const latestFTEs    = getLatestEffectiveFTEs(sprints);
-
+  const trendMeta = TREND_META[trend];
   const lastSprint = sprints[sprints.length - 1];
 
-  // Derive totals from per-member capacity (with legacy fallback)
-  const allTotals = sprints.reduce((acc, s) => {
+  const allTotals = useMemo(() => sprints.reduce((acc, s) => {
     const t = sprintCapacityTotals(s);
-    return { ptoDays: acc.ptoDays + t.ptoDays, supportDays: acc.supportDays + t.supportDays, otherDays: acc.otherDays + t.otherDays };
-  }, { ptoDays: 0, supportDays: 0, otherDays: 0 });
+    return {
+      ptoDays: acc.ptoDays + t.ptoDays,
+      supportDays: acc.supportDays + t.supportDays,
+      otherDays: acc.otherDays + t.otherDays,
+    };
+  }, { ptoDays: 0, supportDays: 0, otherDays: 0 }), [sprints]);
 
   const lastTotals = lastSprint ? sprintCapacityTotals(lastSprint) : { ptoDays: 0, supportDays: 0, otherDays: 0 };
 
@@ -76,15 +84,15 @@ export default function Dashboard() {
       </div>
 
       <div className="stat-grid">
-        <StatCard label="Avg Velocity"          value={`${avg} pts`}                  sub="Simple average"             accent="var(--primary-light)" />
-        <StatCard label="Weighted Velocity"     value={`${weighted} pts`}             sub="Recency-weighted"            accent="var(--secondary)"    />
-        <StatCard label="Adj. Velocity"         value={adjVelocity != null ? `${adjVelocity} pts` : '—'} sub="At full capacity (extrapolated)" accent="var(--success)" />
-        <StatCard label="Predictability"        value={`${predict}%`}                 sub="Commitment hit rate"         accent="var(--warning)"      />
-        <StatCard label="Trend"                 value={`${trendMeta.icon} ${trendMeta.label}`} sub="Last 3 sprints"   accent={trendMeta.color}     />
-        <StatCard label="Effective FTEs"        value={latestFTEs != null ? latestFTEs : (sprints.length ? teamMembers.length : '—')} sub="Latest sprint allocation"  accent="var(--primary-light)" />
-        <StatCard label="Total PTO Days"        value={allTotals.ptoDays}             sub="Across all sprints"         accent="var(--warning)"      />
-        <StatCard label="Total Support Days"    value={allTotals.supportDays}         sub="Across all sprints"         accent="var(--danger)"       />
-        <StatCard label="Total Other Days"      value={allTotals.otherDays}           sub="Training, on-call, etc"     accent="var(--secondary)"    />
+        <StatCard label="Avg Velocity" value={`${avg} pts`} sub="Simple average" accent="var(--primary-light)" />
+        <StatCard label="Weighted Velocity" value={`${weighted} pts`} sub="Recency-weighted" accent="var(--secondary)" />
+        <StatCard label="Adj. Velocity" value={adjVelocity != null ? `${adjVelocity} pts` : '—'} sub="At full capacity (extrapolated)" accent="var(--success)" />
+        <StatCard label="Predictability" value={`${predict}%`} sub="Commitment hit rate" accent="var(--warning)" />
+        <StatCard label="Trend" value={`${trendMeta.icon} ${trendMeta.label}`} sub="Last 3 sprints" accent={trendMeta.color} />
+        <StatCard label="Effective FTEs" value={latestFTEs != null ? latestFTEs : (sprints.length ? teamMembers.length : '—')} sub="Latest sprint allocation" accent="var(--primary-light)" />
+        <StatCard label="Total PTO Days" value={allTotals.ptoDays} sub="Across all sprints" accent="var(--warning)" />
+        <StatCard label="Total Support Days" value={allTotals.supportDays} sub="Across all sprints" accent="var(--danger)" />
+        <StatCard label="Total Other Days" value={allTotals.otherDays} sub="Training, on-call, etc" accent="var(--secondary)" />
       </div>
 
       {lastSprint && (
@@ -124,9 +132,9 @@ export default function Dashboard() {
               itemStyle={{ color: 'var(--text-secondary)' }}
             />
             <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: 12 }} />
-            <Bar dataKey="committed"   name="Committed"         fill="rgba(79,70,229,0.4)"  radius={[4,4,0,0]} />
-            <Bar dataKey="completed"   name="Completed"         fill="var(--primary-light)" radius={[4,4,0,0]} />
-            <Line dataKey="rollingAvg" name="Rolling Avg"       type="monotone" stroke="var(--secondary)" strokeWidth={2} dot={false} />
+            <Bar dataKey="committed" name="Committed" fill="rgba(79,70,229,0.4)" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="completed" name="Completed" fill="var(--primary-light)" radius={[4, 4, 0, 0]} />
+            <Line dataKey="rollingAvg" name="Rolling Avg" type="monotone" stroke="var(--secondary)" strokeWidth={2} dot={false} />
             <Line dataKey="adjVelocity" name="Adj. (Full Cap.)" type="monotone" stroke="var(--success)" strokeWidth={2} strokeDasharray="5 3" dot={false} />
           </ComposedChart>
         </ResponsiveContainer>

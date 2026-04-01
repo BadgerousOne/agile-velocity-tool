@@ -19,6 +19,12 @@
 import React, { useState } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import { sprintCalendarInfo } from '../context/VelocityContext';
+import {
+  buildExportPayload,
+  extractStateEnvelope,
+  migrateStateBySchema,
+  sanitizeImportedState,
+} from '../utils/stateSchema';
 import './Settings.css';
 
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -31,7 +37,8 @@ export default function Settings() {
   const [editingHoliday,   setEditingHoliday]   = useState(null); // holidayId
 
   const handleExport = () => {
-    const json = JSON.stringify(state, null, 2);
+    const payload = buildExportPayload(state);
+    const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -46,9 +53,15 @@ export default function Settings() {
     reader.onload = (ev) => {
       try {
         const parsed = JSON.parse(ev.target.result);
-        dispatch({ type: 'LOAD_STATE', payload: { ...parsed, activeTab: 'settings' } });
+        const envelope = extractStateEnvelope(parsed);
+        const migrated = migrateStateBySchema(envelope.state, envelope.schemaVersion);
+        const normalized = sanitizeImportedState(migrated.state, state);
+        dispatch({ type: 'LOAD_STATE', payload: normalized });
+        dispatch({ type: 'SET_TAB', tab: 'settings' });
         alert('Data imported successfully!');
-      } catch { alert('Failed to import: invalid JSON file.'); }
+      } catch (err) {
+        alert(`Failed to import: ${err?.message || 'invalid JSON file.'}`);
+      }
     };
     reader.readAsText(file);
   };

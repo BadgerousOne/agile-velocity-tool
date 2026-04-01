@@ -12,6 +12,12 @@
  */
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  CURRENT_SCHEMA_VERSION,
+  extractStateEnvelope,
+  migrateStateBySchema,
+  sanitizeImportedState,
+} from '../utils/stateSchema';
 
 const VelocityContext = createContext(null);
 const STORAGE_KEY = 'agile_velocity_tool_state';
@@ -249,6 +255,7 @@ const defaultState = {
   sprintDurationDays: 14,
   supportImpactFactor: 0.8,
   sprintStartDay: 1, // 1 = Monday (0=Sun, 1=Mon, ..., 6=Sat)
+  schemaVersion: CURRENT_SCHEMA_VERSION,
   activeTab: 'dashboard',
   chatHistory: [],
 };
@@ -264,9 +271,13 @@ const defaultState = {
  * - UPDATE_MEMBER: syncs memberName across all sprint capacity rows when name changes
  * - REMOVE_MEMBER: removes the member's row from every sprint
  */
-function reducer(state, action) {
+export function reducer(state, action) {
   switch (action.type) {
-    case 'LOAD_STATE': return { ...action.payload };
+    case 'LOAD_STATE': {
+      const next = action.payload && typeof action.payload === 'object' ? action.payload : {};
+      const migrated = migrateStateBySchema(next, next.schemaVersion);
+      return sanitizeImportedState(migrated.state, state);
+    }
     case 'SET_TAB':    return { ...state, activeTab: action.tab };
 
     // ── Regions ───────────────────────────────────────────────────────────
@@ -486,7 +497,11 @@ export function VelocityProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, undefined, () => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const envelope = extractStateEnvelope(JSON.parse(saved));
+        const migrated = migrateStateBySchema(envelope.state, envelope.schemaVersion);
+        return sanitizeImportedState(migrated.state, defaultState);
+      }
     } catch {}
     return defaultState;
   });

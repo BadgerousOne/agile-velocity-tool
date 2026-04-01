@@ -20,11 +20,11 @@
  *  - Time-period detail table with Optimistic (+20%) / Pessimistic (-20%) columns
  *  - Scenario planning table
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import {
   calcWeightedVelocity, calcAverageVelocity,
-  getLatestEffectiveFTEs, calcCapacityAdjustedVelocity,
+  getLatestEffectiveFTEs,
 } from '../utils/velocityCalc';
 import {
   ResponsiveContainer, LineChart, BarChart, Bar, Line, XAxis, YAxis,
@@ -69,18 +69,18 @@ function calcPeriodForecast(velocity, sprintDays, months, allocationFactor = 1.0
 
 export default function Forecast() {
   const { state } = useVelocity();
-  const { sprints, sprintDurationDays, supportImpactFactor } = state;
+  const { sprints, sprintDurationDays } = state;
 
   const [backlog, setBacklog]         = useState(200);
   const [useWeighted, setUseWeighted] = useState(true);
   const [useActualAlloc, setUseActualAlloc] = useState(true);
 
-  const avg      = calcAverageVelocity(sprints);
-  const weighted = calcWeightedVelocity(sprints);
+  const avg      = useMemo(() => calcAverageVelocity(sprints), [sprints]);
+  const weighted = useMemo(() => calcWeightedVelocity(sprints), [sprints]);
   const velocity = useWeighted ? weighted : avg;
 
   // Latest sprint's effective FTE ratio (e.g. 2.5 FTEs out of 3 members)
-  const latestFTEs    = getLatestEffectiveFTEs(sprints);
+  const latestFTEs    = useMemo(() => getLatestEffectiveFTEs(sprints), [sprints]);
   // Max possible FTEs if everyone were at 100%
   const memberCount   = state.teamMembers.length;
   // allocationFactor: ratio of current FTEs vs full team headcount
@@ -92,58 +92,64 @@ export default function Forecast() {
   const sprintsNeeded = velocity > 0 ? Math.ceil(backlog / (velocity * allocationFactor)) : null;
 
   // ── Burndown projection ──────────────────────────────────────────────────
-  const burndownData = [];
-  if (velocity > 0 && sprintsNeeded) {
-    const effectiveVel = velocity * allocationFactor;
-    let remaining = backlog;
-    burndownData.push({ sprint: 'Now', remaining, ideal: backlog });
-    for (let i = 1; i <= sprintsNeeded; i++) {
-      remaining = Math.max(0, remaining - effectiveVel);
-      const ideal = Math.max(0, backlog - (backlog / sprintsNeeded) * i);
-      burndownData.push({
-        sprint: `S+${i}`,
-        remaining: parseFloat(remaining.toFixed(1)),
-        ideal: parseFloat(ideal.toFixed(1)),
-      });
+  const burndownData = useMemo(() => {
+    const data = [];
+    if (velocity > 0 && sprintsNeeded) {
+      const effectiveVel = velocity * allocationFactor;
+      let remaining = backlog;
+      data.push({ sprint: 'Now', remaining, ideal: backlog });
+      for (let i = 1; i <= sprintsNeeded; i++) {
+        remaining = Math.max(0, remaining - effectiveVel);
+        const ideal = Math.max(0, backlog - (backlog / sprintsNeeded) * i);
+        data.push({
+          sprint: `S+${i}`,
+          remaining: parseFloat(remaining.toFixed(1)),
+          ideal: parseFloat(ideal.toFixed(1)),
+        });
+      }
     }
-  }
+    return data;
+  }, [velocity, sprintsNeeded, allocationFactor, backlog]);
 
   // ── Scenario planning ────────────────────────────────────────────────────
-  const scenarios = [
+  const scenarios = useMemo(() => [
     { label: 'Optimistic (+20%)',  vel: parseFloat((velocity * allocationFactor * 1.2).toFixed(1)) },
     { label: 'Expected',           vel: parseFloat((velocity * allocationFactor).toFixed(1))        },
     { label: 'Pessimistic (-20%)', vel: parseFloat((velocity * allocationFactor * 0.8).toFixed(1)) },
-  ].map(s => ({ ...s, sprints: s.vel > 0 ? Math.ceil(backlog / s.vel) : '—' }));
+  ].map(s => ({ ...s, sprints: s.vel > 0 ? Math.ceil(backlog / s.vel) : '—' })), [velocity, allocationFactor, backlog]);
 
   // ── Time-period forecasts ─────────────────────────────────────────────────
-  const periodForecasts = TIME_PERIODS.map(p => ({
+  const periodForecasts = useMemo(() => TIME_PERIODS.map(p => ({
     ...p,
     ...calcPeriodForecast(velocity, sprintDurationDays, p.months, allocationFactor),
-  }));
+  })), [velocity, sprintDurationDays, allocationFactor]);
 
   // Chart: cumulative points delivered month by month across 12 months
-  const monthlyChartData = [];
-  if (velocity > 0) {
-    const sprintsPerMonth = WORKING_DAYS_PER_MONTH / sprintDurationDays;
-    let cumulative = 0;
-    for (let m = 1; m <= 12; m++) {
-      cumulative += velocity * allocationFactor * sprintsPerMonth;
-      const milestone = TIME_PERIODS.find(p => p.months === m);
-      monthlyChartData.push({
-        month: `Mo ${m}`,
-        cumulative: parseFloat(cumulative.toFixed(1)),
-        milestone: milestone ? milestone.label : null,
-      });
+  const monthlyChartData = useMemo(() => {
+    const data = [];
+    if (velocity > 0) {
+      const sprintsPerMonth = WORKING_DAYS_PER_MONTH / sprintDurationDays;
+      let cumulative = 0;
+      for (let m = 1; m <= 12; m++) {
+        cumulative += velocity * allocationFactor * sprintsPerMonth;
+        const milestone = TIME_PERIODS.find(p => p.months === m);
+        data.push({
+          month: `Mo ${m}`,
+          cumulative: parseFloat(cumulative.toFixed(1)),
+          milestone: milestone ? milestone.label : null,
+        });
+      }
     }
-  }
+    return data;
+  }, [velocity, sprintDurationDays, allocationFactor]);
 
   // Chart: points deliverable per period (bar chart)
-  const periodBarData = periodForecasts.map(p => ({
+  const periodBarData = useMemo(() => periodForecasts.map(p => ({
     name: p.label,
     points: p.totalPoints,
     sprints: p.fullSprints,
     color: p.color,
-  }));
+  })), [periodForecasts]);
 
   const tooltipStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 };
   const tickStyle    = { fill: 'var(--text-secondary)', fontSize: 12 };

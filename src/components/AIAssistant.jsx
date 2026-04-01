@@ -81,6 +81,29 @@ const PROVIDERS = {
   },
 };
 
+function readApiKey(providerId) {
+  const keyName = `ai_key_${providerId}`;
+  const sessionKey = sessionStorage.getItem(keyName);
+  if (sessionKey) return sessionKey;
+
+  // One-time migration from legacy localStorage storage.
+  const legacyKey = localStorage.getItem(keyName);
+  if (legacyKey) {
+    sessionStorage.setItem(keyName, legacyKey);
+    localStorage.removeItem(keyName);
+    return legacyKey;
+  }
+  return '';
+}
+
+function writeApiKey(providerId, key) {
+  const keyName = `ai_key_${providerId}`;
+  if (key) sessionStorage.setItem(keyName, key);
+  else sessionStorage.removeItem(keyName);
+  // Ensure keys are not persisted across browser sessions.
+  localStorage.removeItem(keyName);
+}
+
 // ─── API Callers ─────────────────────────────────────────────────────────────
 async function callOpenAI(apiKey, model, messages) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -159,10 +182,31 @@ function buildSystemPrompt(state) {
   const trend    = calcTrend(sprints);
   const predict  = calcPredictability(sprints);
 
-  const teamSummary   = teamMembers.map(m => `  - ${m.name} (${m.role}, ${m.allocation}% allocation)`).join('\n');
-  const sprintSummary = sprints.map(s =>
-    `  - ${s.name}: committed=${s.committedPoints}, completed=${s.completedPoints}, PTO=${s.ptoDays}d, support=${s.supportDays}d`
-  ).join('\n');
+  const latestSprint = sprints[sprints.length - 1];
+  const latestAllocMap = {};
+  (latestSprint?.memberCapacity || []).forEach(r => {
+    latestAllocMap[r.memberId] = r.allocation ?? 100;
+  });
+
+  const teamSummary = teamMembers.map(m => {
+    const alloc = latestAllocMap[m.id];
+    const allocText = alloc != null ? `${alloc}% allocation` : 'no sprint allocation yet';
+    return `  - ${m.name} (${m.role}, ${allocText})`;
+  }).join('\n');
+
+  const sprintSummary = sprints.map(s => {
+    const rows = s.memberCapacity || [];
+    const totals = rows.reduce((acc, r) => ({
+      ptoDays: acc.ptoDays + (r.ptoDays || 0),
+      supportDays: acc.supportDays + (r.supportDays || 0),
+      otherDays: acc.otherDays + (r.otherDays || 0),
+    }), { ptoDays: 0, supportDays: 0, otherDays: 0 });
+    const ftes = rows.length
+      ? rows.reduce((sum, r) => sum + ((r.allocation ?? 100) / 100), 0).toFixed(2)
+      : 'N/A';
+
+    return `  - ${s.name}: committed=${s.committedPoints}, completed=${s.completedPoints}, PTO=${totals.ptoDays}d, support=${totals.supportDays}d, other=${totals.otherDays}d, FTEs=${ftes}`;
+  }).join('\n');
 
   return `You are an expert Agile Coach and Scrum Master AI assistant embedded inside an Agile Velocity Tool. You have full knowledge of the team's current data and provide thoughtful, data-driven advice.
 
@@ -208,7 +252,7 @@ export default function AIAssistant() {
     const saved = localStorage.getItem('ai_model');
     return saved || PROVIDERS['openai'].defaultModel;
   });
-  const [apiKey, setApiKey]   = useState(() => localStorage.getItem(`ai_key_${providerId}`) || '');
+  const [apiKey, setApiKey]   = useState(() => readApiKey(providerId));
   const [showKey, setShowKey] = useState(false);
   const [input, setInput]     = useState('');
   const [loading, setLoading] = useState(false);
@@ -225,7 +269,7 @@ export default function AIAssistant() {
   const switchProvider = (id) => {
     setProviderId(id);
     setModel(PROVIDERS[id].defaultModel);
-    setApiKey(localStorage.getItem(`ai_key_${id}`) || '');
+    setApiKey(readApiKey(id));
     setError('');
     localStorage.setItem('ai_provider', id);
     localStorage.setItem('ai_model', PROVIDERS[id].defaultModel);
@@ -233,7 +277,7 @@ export default function AIAssistant() {
 
   const saveKey = (key) => {
     setApiKey(key);
-    localStorage.setItem(`ai_key_${providerId}`, key);
+    writeApiKey(providerId, key);
   };
 
   const saveModel = (m) => {
@@ -371,9 +415,12 @@ export default function AIAssistant() {
           <div key={i} className={`ai-bubble ${msg.role}`}>
             <div className="ai-bubble-avatar">{msg.role === 'user' ? '🧑' : '🤖'}</div>
             <div className="ai-bubble-content">
-              {msg.content.split('\n').map((line, j) => (
-                <span key={j}>{line}{j < msg.content.split('\n').length - 1 && <br />}</span>
-              ))}
+              {(() => {
+                const lines = msg.content.split('\n');
+                return lines.map((line, j) => (
+                  <span key={j}>{line}{j < lines.length - 1 && <br />}</span>
+                ));
+              })()}
             </div>
           </div>
         ))}

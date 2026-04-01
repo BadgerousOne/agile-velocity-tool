@@ -14,7 +14,7 @@
  *  Sprint · Committed · Completed · % Done · Eff. FTEs · Utilization · Adj. Velocity
  *  · PTO · Support · Other · Rolling Avg
  */
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import {
   calcAverageVelocity, calcWeightedVelocity, calcTrend,
@@ -22,7 +22,7 @@ import {
   calcCapacityAdjustedVelocity, getLatestEffectiveFTEs,
 } from '../utils/velocityCalc';
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, AreaChart, Area,
+  ResponsiveContainer, ComposedChart, Bar, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ReferenceLine,
 } from 'recharts';
 import './VelocityChart.css';
@@ -31,23 +31,29 @@ export default function VelocityChart() {
   const { state } = useVelocity();
   const { sprints, sprintDurationDays, supportImpactFactor } = state;
 
-  const chartData  = buildChartData(sprints, sprintDurationDays, supportImpactFactor);
-  const avg        = calcAverageVelocity(sprints);
-  const weighted   = calcWeightedVelocity(sprints);
-  const trend      = calcTrend(sprints);
-  const predict    = calcPredictability(sprints);
-  const adjVel     = calcCapacityAdjustedVelocity(sprints, sprintDurationDays, supportImpactFactor);
-  const latestFTEs = getLatestEffectiveFTEs(sprints);
+  const chartData  = useMemo(
+    () => buildChartData(sprints, sprintDurationDays, supportImpactFactor),
+    [sprints, sprintDurationDays, supportImpactFactor]
+  );
+  const avg        = useMemo(() => calcAverageVelocity(sprints), [sprints]);
+  const weighted   = useMemo(() => calcWeightedVelocity(sprints), [sprints]);
+  const trend      = useMemo(() => calcTrend(sprints), [sprints]);
+  const predict    = useMemo(() => calcPredictability(sprints), [sprints]);
+  const adjVel     = useMemo(
+    () => calcCapacityAdjustedVelocity(sprints, sprintDurationDays, supportImpactFactor),
+    [sprints, sprintDurationDays, supportImpactFactor]
+  );
+  const latestFTEs = useMemo(() => getLatestEffectiveFTEs(sprints), [sprints]);
 
   // Sprint-over-sprint delta
-  const deltaData = sprints.map((s, i) => ({
+  const deltaData = useMemo(() => sprints.map((s, i) => ({
     name: s.name,
     delta: i === 0 ? 0 : s.completedPoints - sprints[i - 1].completedPoints,
     completed: s.completedPoints,
-  }));
+  })), [sprints]);
 
   // Capacity impact data
-  const capacityData = sprints.map(s => {
+  const capacityData = useMemo(() => sprints.map(s => {
     const t = sprintCapacityTotals(s);
     return {
       name: s.name,
@@ -56,16 +62,16 @@ export default function VelocityChart() {
       otherDays:   t.otherDays,
       completed:   s.completedPoints,
     };
-  });
+  }), [sprints]);
 
   // Capacity utilization data
-  const utilizationData = chartData.map(d => ({
+  const utilizationData = useMemo(() => chartData.map(d => ({
     name:        d.name,
     utilization: d.utilization,
     effectiveFTEs: d.effectiveFTEs,
     completed:   d.completed,
     adjVelocity: d.adjVelocity,
-  }));
+  })), [chartData]);
 
   const tooltipStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 };
   const labelStyle   = { color: 'var(--text-primary)' };
