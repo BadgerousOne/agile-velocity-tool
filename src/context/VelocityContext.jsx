@@ -10,7 +10,7 @@
  *  - useVelocity()     — hook to access { state, dispatch } anywhere
  *  - aggregateCapacity() — helper to sum PTO/support/other across a sprint's member rows
  */
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -183,108 +183,271 @@ export function aggregateCapacity(memberCapacity = []) {
 const _m1 = uuidv4(), _m2 = uuidv4(), _m3 = uuidv4();
 const _r1 = uuidv4(), _r2 = uuidv4();
 
+// Milestone IDs reused across release plans so dependsOnMilestoneIds can reference them.
+const _ms_alpha = uuidv4(), _ms_beta = uuidv4(), _ms_rc = uuidv4(), _ms_ga = uuidv4();
+const _ms_design = uuidv4(), _ms_api = uuidv4(), _ms_launch = uuidv4();
+
+/**
+ * Minimal state for a freshly created workspace — no sample data.
+ * Exported so WorkspaceContext can use it when a workspace has no saved state.
+ */
+export const emptyWorkspaceState = {
+  regions: [],
+  holidays: [],
+  teamMembers: [],
+  sprints: [],
+  sprintDurationDays: 10,
+  supportImpactFactor: 0.8,
+  sprintStartDay: 1,
+  releasePlans: [],
+  integrations: {
+    jira:  { connected: false, baseUrl: '',      projectKey: '', username: '', token: '',
+             mappings: { sprint: 'Sprint',         points: 'Story Points', status: 'Status'       } },
+    azure: { connected: false, organization: '',  project: '',  pat: '',
+             mappings: { sprint: 'Iteration Path', points: 'Story Points', status: 'State'        } },
+  },
+  aiActionAudit: [],
+  schemaVersion: CURRENT_SCHEMA_VERSION,
+  activeTab: 'dashboard',
+  chatHistory: [],
+};
+
 const defaultState = {
   regions: [
     { id: _r1, name: 'United States' },
-    { id: _r2, name: 'India' },
+    { id: _r2, name: 'United Kingdom' },
   ],
   holidays: [
-    // US 2026 federal holidays
-    { id: uuidv4(), regionId: _r1, name: "New Year's Day",        date: '2026-01-01' },
-    { id: uuidv4(), regionId: _r1, name: 'MLK Day',               date: '2026-01-19' },
-    { id: uuidv4(), regionId: _r1, name: "Presidents' Day",       date: '2026-02-16' },
-    { id: uuidv4(), regionId: _r1, name: 'Memorial Day',          date: '2026-05-25' },
-    { id: uuidv4(), regionId: _r1, name: 'Juneteenth',            date: '2026-06-19' },
-    { id: uuidv4(), regionId: _r1, name: 'Independence Day',      date: '2026-07-04' },
-    { id: uuidv4(), regionId: _r1, name: 'Labor Day',             date: '2026-09-07' },
-    { id: uuidv4(), regionId: _r1, name: 'Columbus Day',          date: '2026-10-12' },
-    { id: uuidv4(), regionId: _r1, name: 'Veterans Day',          date: '2026-11-11' },
-    { id: uuidv4(), regionId: _r1, name: 'Thanksgiving Day',      date: '2026-11-26' },
-    { id: uuidv4(), regionId: _r1, name: 'Christmas Day',         date: '2026-12-25' },
-    // India 2026 national holidays
-    { id: uuidv4(), regionId: _r2, name: 'Republic Day',          date: '2026-01-26' },
-    { id: uuidv4(), regionId: _r2, name: 'Holi',                  date: '2026-03-04' },
-    { id: uuidv4(), regionId: _r2, name: 'Ram Navami',            date: '2026-03-27' },
-    { id: uuidv4(), regionId: _r2, name: 'Good Friday',           date: '2026-04-03' },
-    { id: uuidv4(), regionId: _r2, name: 'Eid ul-Fitr',           date: '2026-04-01' },
-    { id: uuidv4(), regionId: _r2, name: 'Ambedkar Jayanti',      date: '2026-04-14' },
-    { id: uuidv4(), regionId: _r2, name: 'Independence Day',      date: '2026-08-15' },
-    { id: uuidv4(), regionId: _r2, name: 'Gandhi Jayanti',        date: '2026-10-02' },
-    { id: uuidv4(), regionId: _r2, name: 'Dussehra',              date: '2026-10-20' },
-    { id: uuidv4(), regionId: _r2, name: 'Diwali',                date: '2026-11-08' },
-    { id: uuidv4(), regionId: _r2, name: 'Christmas Day',         date: '2026-12-25' },
+    // US 2025–2026
+    { id: uuidv4(), regionId: _r1, name: 'Labor Day',           date: '2025-09-01' },
+    { id: uuidv4(), regionId: _r1, name: 'Columbus Day',        date: '2025-10-13' },
+    { id: uuidv4(), regionId: _r1, name: 'Veterans Day',        date: '2025-11-11' },
+    { id: uuidv4(), regionId: _r1, name: 'Thanksgiving Day',    date: '2025-11-27' },
+    { id: uuidv4(), regionId: _r1, name: 'Christmas Day',       date: '2025-12-25' },
+    { id: uuidv4(), regionId: _r1, name: "New Year's Day",      date: '2026-01-01' },
+    { id: uuidv4(), regionId: _r1, name: 'MLK Day',             date: '2026-01-19' },
+    { id: uuidv4(), regionId: _r1, name: "Presidents' Day",     date: '2026-02-16' },
+    { id: uuidv4(), regionId: _r1, name: 'Memorial Day',        date: '2026-05-25' },
+    { id: uuidv4(), regionId: _r1, name: 'Independence Day',    date: '2026-07-04' },
+    // UK 2025–2026
+    { id: uuidv4(), regionId: _r2, name: 'Summer Bank Holiday', date: '2025-08-25' },
+    { id: uuidv4(), regionId: _r2, name: 'Christmas Day',       date: '2025-12-25' },
+    { id: uuidv4(), regionId: _r2, name: 'Boxing Day',          date: '2025-12-26' },
+    { id: uuidv4(), regionId: _r2, name: "New Year's Day",      date: '2026-01-01' },
+    { id: uuidv4(), regionId: _r2, name: 'Good Friday',         date: '2026-04-03' },
+    { id: uuidv4(), regionId: _r2, name: 'Easter Monday',       date: '2026-04-06' },
+    { id: uuidv4(), regionId: _r2, name: 'Early May Bank Holiday', date: '2026-05-04' },
+    { id: uuidv4(), regionId: _r2, name: 'Spring Bank Holiday', date: '2026-05-25' },
   ],
   teamMembers: [
-    { id: _m1, name: 'Alice Johnson', role: 'Developer',  regionId: _r1 },
-    { id: _m2, name: 'Bob Smith',     role: 'Developer',  regionId: _r1 },
-    { id: _m3, name: 'Carol White',   role: 'QA Engineer', regionId: _r2 },
+    { id: _m1, name: 'Jordan Kim',    role: 'Tech Lead',    regionId: _r1 },
+    { id: _m2, name: 'Sam Rivera',    role: 'Developer',    regionId: _r1 },
+    { id: _m3, name: 'Priya Nair',    role: 'QA Engineer',  regionId: _r2 },
   ],
   sprints: [
+    // Sprint 1 — Sep 2025: Team ramping up, Carol (Priya) at 50% from onboarding
     {
-      id: uuidv4(), name: 'Sprint 1', startDate: '2026-01-05', endDate: '2026-01-18',
-      committedPoints: 40, completedPoints: 35, notes: '',
+      id: uuidv4(), name: 'Sprint 1', startDate: '2025-09-08', endDate: '2025-09-19',
+      committedPoints: 30, completedPoints: 26,
+      scopeAddedPoints: 0, scopeRemovedPoints: 0,
+      notes: 'Team ramp-up sprint. Priya joining mid-sprint.',
       memberCapacity: [
-        { memberId: _m1, memberName: 'Alice Johnson', allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['MLK Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
-        { memberId: _m2, memberName: 'Bob Smith',     allocation: 80,  ptoDays: 1, holidayDays: 1, holidayNames: ['MLK Day'], supportDays: 1, otherDays: 0, otherLabel: '' },
-        { memberId: _m3, memberName: 'Carol White',   allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 1, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 50,  ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
       ],
     },
+    // Sprint 2 — Sep/Oct 2025: Priya at 75%, solid delivery
     {
-      id: uuidv4(), name: 'Sprint 2', startDate: '2026-01-19', endDate: '2026-02-01',
-      committedPoints: 42, completedPoints: 42, notes: '',
+      id: uuidv4(), name: 'Sprint 2', startDate: '2025-09-22', endDate: '2025-10-03',
+      committedPoints: 32, completedPoints: 30,
+      scopeAddedPoints: 3, scopeRemovedPoints: 0,
+      notes: 'Scope added mid-sprint for urgent bug fixes.',
       memberCapacity: [
-        { memberId: _m1, memberName: 'Alice Johnson', allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
-        { memberId: _m2, memberName: 'Bob Smith',     allocation: 80,  ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
-        { memberId: _m3, memberName: 'Carol White',   allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['Republic Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 75,  ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
       ],
     },
+    // Sprint 3 — Oct 2025: Columbus Day (US), Priya at 100%
     {
-      id: uuidv4(), name: 'Sprint 3', startDate: '2026-02-02', endDate: '2026-02-15',
-      committedPoints: 45, completedPoints: 38, notes: '',
+      id: uuidv4(), name: 'Sprint 3', startDate: '2025-10-06', endDate: '2025-10-17',
+      committedPoints: 35, completedPoints: 35,
+      scopeAddedPoints: 0, scopeRemovedPoints: 0,
+      notes: 'First fully staffed sprint. Great execution.',
       memberCapacity: [
-        { memberId: _m1, memberName: 'Alice Johnson', allocation: 100, ptoDays: 2, holidayDays: 0, holidayNames: [], supportDays: 1, otherDays: 0, otherLabel: '' },
-        { memberId: _m2, memberName: 'Bob Smith',     allocation: 100, ptoDays: 1, holidayDays: 0, holidayNames: [], supportDays: 1, otherDays: 0, otherLabel: '' },
-        { memberId: _m3, memberName: 'Carol White',   allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['Columbus Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['Columbus Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
       ],
     },
+    // Sprint 4 — Oct/Nov 2025: High velocity, slight overcommit
     {
-      id: uuidv4(), name: 'Sprint 4', startDate: '2026-02-16', endDate: '2026-03-01',
-      committedPoints: 40, completedPoints: 44, notes: '',
+      id: uuidv4(), name: 'Sprint 4', startDate: '2025-10-20', endDate: '2025-10-31',
+      committedPoints: 40, completedPoints: 38,
+      scopeAddedPoints: 5, scopeRemovedPoints: 2,
+      notes: 'Scope churn from late-breaking requirements.',
       memberCapacity: [
-        { memberId: _m1, memberName: 'Alice Johnson', allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ["Presidents' Day"], supportDays: 0, otherDays: 1, otherLabel: 'Training' },
-        { memberId: _m2, memberName: 'Bob Smith',     allocation: 100, ptoDays: 2, holidayDays: 1, holidayNames: ["Presidents' Day"], supportDays: 0, otherDays: 0, otherLabel: '' },
-        { memberId: _m3, memberName: 'Carol White',   allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 2, otherLabel: 'Conf. talk prep' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 2, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
       ],
     },
+    // Sprint 5 — Nov 2025: Veterans Day + Thanksgiving impact
     {
-      id: uuidv4(), name: 'Sprint 5', startDate: '2026-03-02', endDate: '2026-03-15',
-      committedPoints: 46, completedPoints: 46, notes: '',
+      id: uuidv4(), name: 'Sprint 5', startDate: '2025-11-03', endDate: '2025-11-14',
+      committedPoints: 36, completedPoints: 36,
+      scopeAddedPoints: 0, scopeRemovedPoints: 0,
+      notes: 'Clean sprint. Team hit commitment exactly.',
       memberCapacity: [
-        { memberId: _m1, memberName: 'Alice Johnson', allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 1, otherDays: 0, otherLabel: '' },
-        { memberId: _m2, memberName: 'Bob Smith',     allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
-        { memberId: _m3, memberName: 'Carol White',   allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['Holi'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['Veterans Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['Veterans Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+      ],
+    },
+    // Sprint 6 — Nov/Dec 2025: Thanksgiving week, reduced capacity
+    {
+      id: uuidv4(), name: 'Sprint 6', startDate: '2025-11-17', endDate: '2025-11-28',
+      committedPoints: 28, completedPoints: 25,
+      scopeAddedPoints: 0, scopeRemovedPoints: 3,
+      notes: 'Thanksgiving week. Reduced capacity planned.',
+      memberCapacity: [
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 3, holidayDays: 1, holidayNames: ['Thanksgiving Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 4, holidayDays: 1, holidayNames: ['Thanksgiving Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+      ],
+    },
+    // Sprint 7 — Dec 2025: Pre-holiday push
+    {
+      id: uuidv4(), name: 'Sprint 7', startDate: '2025-12-01', endDate: '2025-12-12',
+      committedPoints: 38, completedPoints: 40,
+      scopeAddedPoints: 2, scopeRemovedPoints: 0,
+      notes: 'Strong sprint — exceeded commitment. Team momentum building.',
+      memberCapacity: [
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 1, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+      ],
+    },
+    // Sprint 8 — Dec 2025: Christmas holiday sprint
+    {
+      id: uuidv4(), name: 'Sprint 8', startDate: '2025-12-15', endDate: '2025-12-24',
+      committedPoints: 22, completedPoints: 20,
+      scopeAddedPoints: 0, scopeRemovedPoints: 0,
+      notes: 'Holiday sprint. Light commitment by design.',
+      memberCapacity: [
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 3, holidayDays: 1, holidayNames: ['Christmas Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 3, holidayDays: 1, holidayNames: ['Christmas Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 100, ptoDays: 2, holidayDays: 1, holidayNames: ['Christmas Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+      ],
+    },
+    // Sprint 9 — Jan 2026: New Year return, back to full pace
+    {
+      id: uuidv4(), name: 'Sprint 9', startDate: '2026-01-05', endDate: '2026-01-16',
+      committedPoints: 40, completedPoints: 39,
+      scopeAddedPoints: 0, scopeRemovedPoints: 0,
+      notes: 'Back to full pace. MLK Day next sprint.',
+      memberCapacity: [
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ["New Year's Day"], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ["New Year's Day"], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ["New Year's Day"], supportDays: 0, otherDays: 0, otherLabel: '' },
+      ],
+    },
+    // Sprint 10 — Jan 2026: Current/latest sprint (in-progress)
+    {
+      id: uuidv4(), name: 'Sprint 10', startDate: '2026-01-19', endDate: '2026-01-30',
+      committedPoints: 42, completedPoints: 0,
+      scopeAddedPoints: 0, scopeRemovedPoints: 0,
+      notes: '',
+      memberCapacity: [
+        { memberId: _m1, memberName: 'Jordan Kim',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['MLK Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m2, memberName: 'Sam Rivera',  allocation: 100, ptoDays: 1, holidayDays: 1, holidayNames: ['MLK Day'], supportDays: 0, otherDays: 0, otherLabel: '' },
+        { memberId: _m3, memberName: 'Priya Nair',  allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
       ],
     },
   ],
-  sprintDurationDays: 14,
+  sprintDurationDays: 10,
   supportImpactFactor: 0.8,
-  sprintStartDay: 1, // 1 = Monday (0=Sun, 1=Mon, ..., 6=Sat)
+  sprintStartDay: 1, // Monday
   releasePlans: [
     {
       id: uuidv4(),
-      name: 'MVP Release',
-      backlogPoints: 180,
-      targetDate: '2026-09-30',
-      notes: '',
+      name: 'v1.0 — Public Launch',
+      backlogPoints: 120,
+      targetDate: '2026-04-30',
+      notes: 'Feature-complete public launch. Requires alpha, beta, and RC gates.',
       milestones: [
         {
-          id: uuidv4(),
-          name: 'Production',
-          targetDate: '2026-09-30',
-          gate: 'Go/No-Go approval',
+          id: _ms_alpha,
+          name: 'Alpha',
+          targetDate: '2026-02-13',
+          gate: 'Internal sign-off from QA + Engineering',
+          status: 'not_started',
+          notes: 'Core feature set complete. Internal use only.',
+          dependsOnMilestoneIds: [],
+        },
+        {
+          id: _ms_beta,
+          name: 'Beta',
+          targetDate: '2026-03-13',
+          gate: 'External beta users onboarded',
+          status: 'not_started',
+          notes: 'Limited external beta. Invite-only.',
+          dependsOnMilestoneIds: [_ms_alpha],
+        },
+        {
+          id: _ms_rc,
+          name: 'Release Candidate',
+          targetDate: '2026-04-10',
+          gate: 'Zero P0/P1 bugs, perf benchmarks met',
+          status: 'not_started',
+          notes: 'Code freeze. Only critical bug fixes allowed.',
+          dependsOnMilestoneIds: [_ms_beta],
+        },
+        {
+          id: _ms_ga,
+          name: 'General Availability',
+          targetDate: '2026-04-30',
+          gate: 'Go/No-Go meeting with all stakeholders',
           status: 'not_started',
           notes: '',
+          dependsOnMilestoneIds: [_ms_rc],
+        },
+      ],
+    },
+    {
+      id: uuidv4(),
+      name: 'v1.1 — Analytics Dashboard',
+      backlogPoints: 85,
+      targetDate: '2026-07-31',
+      notes: 'Post-launch analytics and reporting features.',
+      milestones: [
+        {
+          id: _ms_design,
+          name: 'Design Complete',
+          targetDate: '2026-05-15',
+          gate: 'Design review approved by product',
+          status: 'not_started',
+          notes: 'UX research, wireframes, and final mockups.',
           dependsOnMilestoneIds: [],
+        },
+        {
+          id: _ms_api,
+          name: 'API Integration',
+          targetDate: '2026-06-26',
+          gate: 'Integration tests passing in staging',
+          status: 'not_started',
+          notes: 'Data pipeline and third-party analytics API.',
+          dependsOnMilestoneIds: [_ms_design],
+        },
+        {
+          id: _ms_launch,
+          name: 'Feature Launch',
+          targetDate: '2026-07-31',
+          gate: 'Rollout to 100% of users',
+          status: 'not_started',
+          notes: '',
+          dependsOnMilestoneIds: [_ms_api],
         },
       ],
     },
@@ -781,22 +944,66 @@ export function reducer(state, action) {
  * lazy initializer — falls back to defaultState if nothing is saved.
  * Persists state to localStorage on every change.
  */
-export function VelocityProvider({ children }) {
+export function VelocityProvider({ children, storageKey = STORAGE_KEY }) {
   const [state, dispatch] = useReducer(reducer, undefined, () => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const envelope = extractStateEnvelope(JSON.parse(saved));
         const migrated = migrateStateBySchema(envelope.state, envelope.schemaVersion);
         return sanitizeImportedState(migrated.state, defaultState);
       }
     } catch { /* ignore parse/storage errors, fall through to default */ }
-    return defaultState;
+    // Default workspace gets sample data on first load; other workspaces start empty.
+    return storageKey === STORAGE_KEY ? defaultState : emptyWorkspaceState;
   });
 
+  // Always keep a ref to the latest state and storageKey so effects can read them
+  // synchronously without stale closures.
+  const stateRef      = useRef(state);
+  stateRef.current    = state;
+  const storageKeyRef = useRef(storageKey);
+  storageKeyRef.current = storageKey;
+
+  // Persist state on every change. Uses a ref for the key so this effect does NOT
+  // fire when storageKey changes — only when state changes. This prevents the
+  // outgoing workspace's state from being written into the incoming workspace's
+  // storage slot before the switch effect has a chance to read the correct data.
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore quota errors */ }
-  }, [state]);
+    try { localStorage.setItem(storageKeyRef.current, JSON.stringify(state)); } catch { /* ignore quota errors */ }
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When storageKey changes (workspace switch), flush the outgoing workspace's state
+  // to its own key, then load the incoming workspace's data. Preserves activeTab so
+  // the user stays on the same page after switching.
+  const prevStorageKeyRef = useRef(storageKey);
+  useEffect(() => {
+    if (prevStorageKeyRef.current === storageKey) return;
+
+    const oldKey = prevStorageKeyRef.current;
+    prevStorageKeyRef.current = storageKey;
+
+    // Flush outgoing workspace to its own key (the save effect won't do this anymore
+    // since it no longer depends on storageKey).
+    try { localStorage.setItem(oldKey, JSON.stringify(stateRef.current)); } catch { /* ignore */ }
+
+    const currentTab = stateRef.current.activeTab;
+
+    // Read the incoming workspace's data. Because the save effect doesn't fire on key
+    // changes, this slot still holds whatever was last saved for that workspace.
+    try {
+      const saved = localStorage.getItem(storageKey);
+      const base  = saved ? (() => {
+        const envelope = extractStateEnvelope(JSON.parse(saved));
+        const migrated = migrateStateBySchema(envelope.state, envelope.schemaVersion);
+        return sanitizeImportedState(migrated.state, defaultState);
+      })() : (storageKey === STORAGE_KEY ? defaultState : emptyWorkspaceState);
+
+      dispatch({ type: 'LOAD_STATE', payload: { ...base, activeTab: currentTab } });
+    } catch {
+      dispatch({ type: 'LOAD_STATE', payload: { ...emptyWorkspaceState, activeTab: currentTab } });
+    }
+  }, [storageKey]);
 
   return (
     <VelocityContext.Provider value={{ state, dispatch }}>

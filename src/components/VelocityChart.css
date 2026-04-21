@@ -38,3 +38,50 @@
 }
 .vel-table tr:last-child td { border-bottom: none; }
 .vel-table tr:hover td { background: var(--bg-card-hover); }
+
+/* ── View mode toggle (Expanded / Compact) ── */
+.vel-view-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+.vel-view-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.vel-view-btn:hover  { background: var(--bg-card-hover); color: var(--text-primary); }
+.vel-view-btn.active { background: var(--primary); color: #fff; }
+
+/* ── Compact mode chart tab strip ── */
+.vel-chart-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.vel-chart-tab {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.vel-chart-tab:hover  { background: var(--bg-card-hover); color: var(--text-primary); }
+.vel-chart-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}

@@ -177,6 +177,97 @@
   align-items: center;
 }
 
+/* ── Workspace settings list ── */
+.ws-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.ws-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.ws-settings-row.active {
+  border-color: rgba(79,70,229,0.4);
+  background: rgba(79,70,229,0.05);
+}
+
+.ws-settings-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ws-settings-active-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  flex-shrink: 0;
+}
+
+.ws-settings-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-settings-active-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary-light);
+  background: rgba(79,70,229,0.12);
+  border: 1px solid rgba(79,70,229,0.3);
+  border-radius: 999px;
+  padding: 1px 8px;
+  flex-shrink: 0;
+}
+
+.ws-settings-rename-input {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 14px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+.ws-settings-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Copy-to-workspace select (shared by regions + releases) ── */
+.copy-to-ws-wrap { display: inline-flex; align-items: center; }
+.copy-to-ws-select {
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  max-width: 160px;
+}
+.copy-to-ws-select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
 .region-toggle-btn { font-size: 12px; }
 .region-toggle-btn.active {
   background: rgba(79,70,229,0.15);

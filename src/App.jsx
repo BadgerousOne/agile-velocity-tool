@@ -9,6 +9,7 @@
  */
 import React from 'react';
 import { VelocityProvider, useVelocity } from './context/VelocityContext';
+import { WorkspaceProvider, useWorkspaces } from './context/WorkspaceContext';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import TeamMembers from './components/TeamMembers';
@@ -51,10 +52,27 @@ function AppContent() {
   );
 }
 
-export default function App() {
+/**
+ * Mounts VelocityProvider keyed on the active workspace.
+ * Changing the key unmounts/remounts VelocityProvider, which re-initializes
+ * state from the new workspace's localStorage entry — a clean workspace switch.
+ */
+function AppWithWorkspace() {
+  const { activeWorkspace } = useWorkspaces();
+  // No key= here — VelocityProvider stays mounted across workspace switches.
+  // The storageKey prop change triggers an internal useEffect that loads the
+  // new workspace's data while preserving the current activeTab.
   return (
-    <VelocityProvider>
+    <VelocityProvider storageKey={activeWorkspace.storageKey}>
       <AppContent />
     </VelocityProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <WorkspaceProvider>
+      <AppWithWorkspace />
+    </WorkspaceProvider>
   );
 }

@@ -17,6 +17,25 @@
   gap: 12px;
 }
 
+.release-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.copy-to-ws-select {
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  max-width: 200px;
+}
+.copy-to-ws-select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
 .release-plan-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

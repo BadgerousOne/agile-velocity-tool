@@ -5,6 +5,13 @@ import Releases from './Releases';
 
 const dispatch = vi.fn();
 
+vi.mock('../context/WorkspaceContext', () => ({
+  useWorkspaces: () => ({
+    workspaces: [{ id: 'default', name: 'Default Workspace', storageKey: 'agile_velocity_tool_state' }],
+    activeWorkspaceId: 'default',
+  }),
+}));
+
 vi.mock('../context/VelocityContext', () => ({
   useVelocity: () => ({
     state: {

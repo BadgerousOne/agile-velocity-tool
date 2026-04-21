@@ -19,6 +19,7 @@
 import React, { useState } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import { sprintCalendarInfo } from '../context/VelocityContext';
+import { useWorkspaces } from '../context/WorkspaceContext';
 import {
   buildExportPayload,
   extractStateEnvelope,
@@ -29,9 +30,6 @@ import {
 import './Settings.css';
 
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const PRIMARY_STORAGE_KEY = 'agile_velocity_tool_state';
-const WORKSPACE_INDEX_KEY = 'agile_velocity_tool_workspaces';
-const ACTIVE_WORKSPACE_KEY = 'agile_velocity_active_workspace';
 
 function csvEscape(value) {
   const s = String(value ?? '');
@@ -80,34 +78,14 @@ function uniqueTruthy(values) {
 
 export default function Settings() {
   const { state, dispatch } = useVelocity();
+  const { workspaces, activeWorkspaceId, switchWorkspace, createWorkspace, renameWorkspace, deleteWorkspace } = useWorkspaces();
   const [editingRegion,    setEditingRegion]    = useState(null);
   const [expandedHolidays, setExpandedHolidays] = useState(null);
   const [expandedMembers,  setExpandedMembers]  = useState(null);
   const [editingHoliday,   setEditingHoliday]   = useState(null); // holidayId
   const [workspaceName,    setWorkspaceName]    = useState('');
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(
-    () => localStorage.getItem(ACTIVE_WORKSPACE_KEY) || 'default'
-  );
-
-  const getWorkspaceIndex = () => {
-    try {
-      const raw = localStorage.getItem(WORKSPACE_INDEX_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      const list = Array.isArray(parsed) ? parsed : [];
-      if (!list.find(w => w.id === 'default')) {
-        return [{ id: 'default', name: 'Default Workspace', storageKey: PRIMARY_STORAGE_KEY }, ...list];
-      }
-      return list;
-    } catch {
-      return [{ id: 'default', name: 'Default Workspace', storageKey: PRIMARY_STORAGE_KEY }];
-    }
-  };
-  const [workspaces, setWorkspaces] = useState(() => getWorkspaceIndex());
-
-  const persistWorkspaceIndex = (next) => {
-    setWorkspaces(next);
-    try { localStorage.setItem(WORKSPACE_INDEX_KEY, JSON.stringify(next)); } catch { /* ignore quota errors */ }
-  };
+  const [renamingWsId,     setRenamingWsId]     = useState(null);
+  const [renameWsValue,    setRenameWsValue]    = useState('');
 
   const handleExport = () => {
     const payload = buildExportPayload(state);
@@ -271,38 +249,42 @@ export default function Settings() {
     reader.readAsText(file);
   };
 
-  const deleteWorkspace = (workspaceId) => {
-    if (workspaceId === 'default') return; // Default workspace cannot be deleted
-    if (workspaceId === activeWorkspaceId) {
-      alert('Cannot delete the active workspace. Switch to another workspace first.');
-      return;
-    }
-    const ws = workspaces.find(w => w.id === workspaceId);
-    if (!ws) return;
-    if (!window.confirm(`Delete workspace "${ws.name}"? Its data will be permanently removed.`)) return;
-    try { localStorage.removeItem(ws.storageKey); } catch { /* ignore */ }
-    persistWorkspaceIndex(workspaces.filter(w => w.id !== workspaceId));
-  };
-
-  const switchWorkspace = (workspaceId) => {
-    const next = workspaces.find(w => w.id === workspaceId);
-    const current = workspaces.find(w => w.id === activeWorkspaceId);
-    if (!next || !current) return;
+  /**
+   * Copy a region (and its holidays) to a target workspace's localStorage entry.
+   * Skips if a region with the same name already exists in that workspace.
+   */
+  const copyRegionToWorkspace = (region, targetWsId) => {
+    const targetWs = workspaces.find(w => w.id === targetWsId);
+    if (!targetWs) return;
     try {
-      localStorage.setItem(current.storageKey, JSON.stringify(state));
-      const saved = localStorage.getItem(next.storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const envelope = extractStateEnvelope(parsed);
-        const migrated = migrateStateBySchema(envelope.state, envelope.schemaVersion);
-        const normalized = sanitizeImportedState(migrated.state, state);
-        dispatch({ type: 'LOAD_STATE', payload: normalized });
+      const raw = localStorage.getItem(targetWs.storageKey);
+      const targetState = raw ? JSON.parse(raw) : {};
+      const targetRegions = Array.isArray(targetState.regions) ? targetState.regions : [];
+      const targetHolidays = Array.isArray(targetState.holidays) ? targetState.holidays : [];
+
+      const nameLower = region.name.toLowerCase();
+      if (targetRegions.some(r => r.name.toLowerCase() === nameLower)) {
+        alert(`Region "${region.name}" already exists in "${targetWs.name}".`);
+        return;
       }
-      localStorage.setItem(ACTIVE_WORKSPACE_KEY, next.id);
-      setActiveWorkspaceId(next.id);
-      dispatch({ type: 'SET_TAB', tab: 'settings' });
+
+      const newRegionId = `${region.id}_copy_${Date.now()}`;
+      const regionHolidays = (state.holidays || []).filter(h => h.regionId === region.id);
+      const copiedHolidays = regionHolidays.map(h => ({
+        ...h,
+        id: `${h.id}_copy_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+        regionId: newRegionId,
+      }));
+
+      const nextState = {
+        ...targetState,
+        regions:  [...targetRegions,  { ...region, id: newRegionId }],
+        holidays: [...targetHolidays, ...copiedHolidays],
+      };
+      localStorage.setItem(targetWs.storageKey, JSON.stringify(nextState));
+      alert(`Region "${region.name}" copied to "${targetWs.name}".`);
     } catch {
-      alert('Failed to switch workspace.');
+      alert('Failed to copy region.');
     }
   };
 
@@ -318,40 +300,109 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* ── Sprint Configuration ── */}
+      {/* ── Workspaces ── */}
       <div className="card settings-section">
         <h2 className="settings-section-title">🗂 Workspaces</h2>
-        <p className="settings-data-note">Create isolated workspaces for different teams or products and switch instantly.</p>
-        <div className="settings-data-actions">
-          <select className="settings-select" value={activeWorkspaceId} onChange={e => switchWorkspace(e.target.value)}>
-            {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}{w.id === activeWorkspaceId ? ' (active)' : ''}</option>)}
-          </select>
+        <p className="settings-data-note">
+          Create isolated workspaces for different teams or products. Rename any workspace to reflect
+          its team or project. Switch between them using the sidebar dropdown (visible when you have
+          more than one workspace).
+        </p>
+
+        {/* Workspace list with inline rename */}
+        <div className="ws-settings-list">
+          {workspaces.map(ws => {
+            const isActive   = ws.id === activeWorkspaceId;
+            const isRenaming = renamingWsId === ws.id;
+            return (
+              <div key={ws.id} className={`ws-settings-row ${isActive ? 'active' : ''}`}>
+                <div className="ws-settings-name-cell">
+                  {isActive && <span className="ws-settings-active-dot" />}
+                  {isRenaming ? (
+                    <input
+                      className="ws-settings-rename-input"
+                      value={renameWsValue}
+                      autoFocus
+                      onChange={e => setRenameWsValue(e.target.value)}
+                      onBlur={() => {
+                        if (renameWsValue.trim()) renameWorkspace(ws.id, renameWsValue.trim());
+                        setRenamingWsId(null);
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          if (renameWsValue.trim()) renameWorkspace(ws.id, renameWsValue.trim());
+                          setRenamingWsId(null);
+                        }
+                        if (e.key === 'Escape') setRenamingWsId(null);
+                      }}
+                    />
+                  ) : (
+                    <span className="ws-settings-name">{ws.name}</span>
+                  )}
+                  {isActive && <span className="ws-settings-active-badge">Active</span>}
+                </div>
+                <div className="ws-settings-actions">
+                  {isRenaming ? (
+                    <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => {
+                      if (renameWsValue.trim()) renameWorkspace(ws.id, renameWsValue.trim());
+                      setRenamingWsId(null);
+                    }}>
+                      ✓ Save
+                    </button>
+                  ) : (
+                    <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => {
+                      setRenamingWsId(ws.id);
+                      setRenameWsValue(ws.name);
+                    }}>
+                      ✏️ Rename
+                    </button>
+                  )}
+                  {!isActive && ws.id !== 'default' && (
+                    <>
+                      <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => switchWorkspace(ws.id)}>
+                        Switch
+                      </button>
+                      <button
+                        className="btn btn-danger"
+                        style={{ fontSize: 12 }}
+                        onClick={() => {
+                          if (window.confirm(`Delete workspace "${ws.name}"? Its data will be permanently removed.`)) {
+                            deleteWorkspace(ws.id);
+                          }
+                        }}
+                      >
+                        🗑
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Add new workspace */}
+        <div className="settings-data-actions" style={{ marginTop: 12 }}>
           <input
             className="settings-select"
             placeholder="New workspace name"
             value={workspaceName}
             onChange={e => setWorkspaceName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && workspaceName.trim()) {
+                createWorkspace(workspaceName.trim());
+                setWorkspaceName('');
+              }
+            }}
           />
           <button className="btn btn-secondary" onClick={() => {
             const name = workspaceName.trim();
             if (!name) return;
-            const id = `ws-${Date.now()}`;
-            const ws = { id, name, storageKey: `agile_velocity_tool_state_${id}` };
-            // New workspace starts blank (default state) rather than copying current state
-            persistWorkspaceIndex([...workspaces, ws]);
+            createWorkspace(name);
             setWorkspaceName('');
           }}>
             + Add Workspace
           </button>
-          {activeWorkspaceId !== 'default' && (
-            <button
-              className="btn btn-danger"
-              title="Delete active workspace"
-              onClick={() => deleteWorkspace(activeWorkspaceId)}
-            >
-              🗑 Delete Workspace
-            </button>
-          )}
         </div>
       </div>
 
@@ -519,6 +570,25 @@ export default function Settings() {
                     >
                       + Holiday
                     </button>
+                    {workspaces.length > 1 && (
+                      <div className="copy-to-ws-wrap">
+                        <select
+                          className="copy-to-ws-select"
+                          defaultValue=""
+                          onChange={e => {
+                            if (e.target.value) {
+                              copyRegionToWorkspace(region, e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                        >
+                          <option value="" disabled>Copy to…</option>
+                          {workspaces.filter(w => w.id !== activeWorkspaceId).map(w => (
+                            <option key={w.id} value={w.id}>{w.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <button
                       className="btn btn-danger"
                       onClick={() => {

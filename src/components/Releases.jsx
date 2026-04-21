@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useVelocity } from '../context/VelocityContext';
+import { useWorkspaces } from '../context/WorkspaceContext';
 import { calcWeightedVelocity, runMonteCarloForecast } from '../utils/velocityCalc';
 import './Releases.css';
 
@@ -13,6 +14,7 @@ const milestoneStatuses = [
 
 export default function Releases() {
   const { state, dispatch } = useVelocity();
+  const { workspaces, activeWorkspaceId } = useWorkspaces();
   const velocity = useMemo(() => calcWeightedVelocity(state.sprints), [state.sprints]);
   const [editingMilestonesByKey, setEditingMilestonesByKey] = useState({});
   const [draftMilestonesByKey, setDraftMilestonesByKey] = useState({});
@@ -32,6 +34,43 @@ export default function Releases() {
   });
 
   const getMilestoneKey = (releaseId, milestoneId) => `${releaseId}:${milestoneId}`;
+
+  /**
+   * Copy a release plan (with all milestones) to a target workspace's localStorage entry.
+   * Skips if a release with the same name already exists in that workspace.
+   */
+  const copyReleaseToWorkspace = (plan, targetWsId) => {
+    const targetWs = workspaces.find(w => w.id === targetWsId);
+    if (!targetWs) return;
+    try {
+      const raw = localStorage.getItem(targetWs.storageKey);
+      const targetState = raw ? JSON.parse(raw) : {};
+      const targetReleases = Array.isArray(targetState.releasePlans) ? targetState.releasePlans : [];
+
+      const nameLower = (plan.name || '').toLowerCase();
+      if (targetReleases.some(r => (r.name || '').toLowerCase() === nameLower)) {
+        alert(`Release "${plan.name || 'Untitled'}" already exists in "${targetWs.name}".`);
+        return;
+      }
+
+      const newPlanId = `${plan.id}_copy_${Date.now()}`;
+      const copiedPlan = {
+        ...plan,
+        id: newPlanId,
+        milestones: (Array.isArray(plan.milestones) ? plan.milestones : []).map(ms => ({
+          ...ms,
+          id: `${ms.id}_copy_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+          dependsOnMilestoneIds: [], // dependencies don't cross over since milestone IDs differ
+        })),
+      };
+
+      const nextState = { ...targetState, releasePlans: [...targetReleases, copiedPlan] };
+      localStorage.setItem(targetWs.storageKey, JSON.stringify(nextState));
+      alert(`Release "${plan.name || 'Untitled'}" copied to "${targetWs.name}".`);
+    } catch {
+      alert('Failed to copy release.');
+    }
+  };
 
   return (
     <div className="forecast-page">
@@ -58,9 +97,28 @@ export default function Releases() {
             <div key={plan.id} className="card chart-section release-plan-card">
               <div className="release-plan-head">
                 <h2 className="chart-title">{plan.name || 'Untitled Release'}</h2>
-                <button className="btn btn-danger" onClick={() => dispatch({ type: 'REMOVE_RELEASE', id: plan.id })}>
-                  Remove Release
-                </button>
+                <div className="release-head-actions">
+                  {workspaces.length > 1 && (
+                    <select
+                      className="copy-to-ws-select"
+                      defaultValue=""
+                      onChange={e => {
+                        if (e.target.value) {
+                          copyReleaseToWorkspace(plan, e.target.value);
+                          e.target.value = '';
+                        }
+                      }}
+                    >
+                      <option value="" disabled>Copy to workspace…</option>
+                      {workspaces.filter(w => w.id !== activeWorkspaceId).map(w => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  <button className="btn btn-danger" onClick={() => dispatch({ type: 'REMOVE_RELEASE', id: plan.id })}>
+                    Remove Release
+                  </button>
+                </div>
               </div>
 
               <div className="release-plan-grid">

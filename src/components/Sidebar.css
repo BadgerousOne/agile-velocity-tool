@@ -104,3 +104,130 @@
   margin-top: 2px;
 }
 
+.sidebar-footer-ws {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary-light);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Workspace switcher (below brand) ── */
+.sidebar-workspace-switcher {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.sws-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 5px;
+}
+
+.sws-select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  appearance: auto;
+}
+
+.sws-select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+/* ── Workspace management panel ── */
+.sidebar-ws-panel {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.swp-title {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 6px;
+}
+
+.swp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.swp-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  min-height: 30px;
+}
+
+.swp-item.active { background: rgba(79,70,229,0.1); }
+
+.swp-name {
+  flex: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swp-item.active .swp-name { color: var(--primary-light); font-weight: 600; cursor: default; }
+
+.swp-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  flex-shrink: 0;
+}
+
+.swp-name:not(.swp-item.active .swp-name):hover { color: var(--text-primary); }
+
+.swp-rename-input {
+  flex: 1;
+  padding: 3px 6px;
+  font-size: 12px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+}
+
+.swp-actions { display: flex; gap: 2px; flex-shrink: 0; }
+
+.swp-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.swp-btn:hover { opacity: 1; background: var(--bg-card-hover); }
+.swp-btn-delete:hover { background: rgba(239,68,68,0.1); }
+
