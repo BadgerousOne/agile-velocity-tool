@@ -149,6 +149,43 @@
 .mc-wrap  { display: flex; flex-direction: column; gap: 14px; }
 .mc-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
 
+.mc-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mc-title-metrics {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mc-title-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mc-title-badge.base {
+  background: rgba(79,70,229,0.12);
+  color: var(--primary-light);
+  border: 1px solid rgba(79,70,229,0.28);
+}
+
+.mc-title-badge.adjusted {
+  background: rgba(16,185,129,0.1);
+  color: var(--success);
+  border: 1px solid rgba(16,185,129,0.28);
+}
+
 .mc-table-wrap { overflow-x: auto; }
 .mc-table {
   width: 100%;
@@ -299,8 +336,40 @@
 
 .mc-alloc-wrap {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mc-alloc-holiday-slot {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.mc-alloc-holiday-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(245,158,11,0.16);
+  color: var(--warning);
+  border: 1px solid rgba(245,158,11,0.3);
+  cursor: help;
+}
+
+.mc-holiday-badge {
+  cursor: help;
+}
+
+.mc-alloc-slider-row {
+  display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
 }
 
 .mc-alloc-slider {
@@ -378,6 +447,15 @@
   color: var(--warning);
 }
 
+.committed-sync-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.2;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+
 .committed-reset-btn {
   font-size: 11px;
   padding: 2px 8px;
@@ -447,4 +525,47 @@
   color: var(--primary-light);
   border: 1px solid rgba(79,70,229,0.25);
   white-space: nowrap;
+}
+
+
+/* ── Sprint search bar ── */
+.sprint-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sprint-search-input {
+  flex: 1;
+  min-width: 220px;
+  max-width: 400px;
+  padding: 8px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.sprint-search-input:focus { outline: none; border-color: var(--primary); }
+.sprint-search-clear { padding: 6px 12px; font-size: 13px; }
+.sprint-search-count { font-size: 12px; color: var(--text-muted); }
+
+/* ── Sprint reorder + clone buttons ── */
+.sprint-move  { padding: 4px 8px; font-size: 11px; min-width: 28px; }
+.sprint-clone { padding: 5px 10px; font-size: 12px; }
+
+/* ── Bulk actions toolbar in Capacity tab ── */
+.sprint-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 12px;
+  flex-wrap: wrap;
+}
+.sprint-bulk-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }

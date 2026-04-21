@@ -24,10 +24,59 @@ import {
   extractStateEnvelope,
   migrateStateBySchema,
   sanitizeImportedState,
+  validateImportedState,
 } from '../utils/stateSchema';
 import './Settings.css';
 
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const PRIMARY_STORAGE_KEY = 'agile_velocity_tool_state';
+const WORKSPACE_INDEX_KEY = 'agile_velocity_tool_workspaces';
+const ACTIVE_WORKSPACE_KEY = 'agile_velocity_active_workspace';
+
+function csvEscape(value) {
+  const s = String(value ?? '');
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function parseCsvLine(line) {
+  const out = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === ',' && !inQuotes) {
+      out.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  out.push(current);
+  return out;
+}
+
+function pickFirst(obj, keys, fallback = '') {
+  for (const key of keys) {
+    if (obj[key] != null && String(obj[key]).trim() !== '') return obj[key];
+  }
+  return fallback;
+}
+
+function uniqueTruthy(values) {
+  return [...new Set((values || []).filter(v => typeof v === 'string' && v.trim()))];
+}
 
 export default function Settings() {
   const { state, dispatch } = useVelocity();
@@ -35,6 +84,30 @@ export default function Settings() {
   const [expandedHolidays, setExpandedHolidays] = useState(null);
   const [expandedMembers,  setExpandedMembers]  = useState(null);
   const [editingHoliday,   setEditingHoliday]   = useState(null); // holidayId
+  const [workspaceName,    setWorkspaceName]    = useState('');
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(
+    () => localStorage.getItem(ACTIVE_WORKSPACE_KEY) || 'default'
+  );
+
+  const getWorkspaceIndex = () => {
+    try {
+      const raw = localStorage.getItem(WORKSPACE_INDEX_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(parsed) ? parsed : [];
+      if (!list.find(w => w.id === 'default')) {
+        return [{ id: 'default', name: 'Default Workspace', storageKey: PRIMARY_STORAGE_KEY }, ...list];
+      }
+      return list;
+    } catch {
+      return [{ id: 'default', name: 'Default Workspace', storageKey: PRIMARY_STORAGE_KEY }];
+    }
+  };
+  const [workspaces, setWorkspaces] = useState(() => getWorkspaceIndex());
+
+  const persistWorkspaceIndex = (next) => {
+    setWorkspaces(next);
+    try { localStorage.setItem(WORKSPACE_INDEX_KEY, JSON.stringify(next)); } catch { /* ignore quota errors */ }
+  };
 
   const handleExport = () => {
     const payload = buildExportPayload(state);
@@ -47,20 +120,26 @@ export default function Settings() {
   };
 
   const handleImport = (e) => {
-    const file = e.target.files[0];
+    const input = e.target;
+    const file = input.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
         const parsed = JSON.parse(ev.target.result);
         const envelope = extractStateEnvelope(parsed);
+        validateImportedState(envelope.state);
         const migrated = migrateStateBySchema(envelope.state, envelope.schemaVersion);
         const normalized = sanitizeImportedState(migrated.state, state);
         dispatch({ type: 'LOAD_STATE', payload: normalized });
+        dispatch({ type: 'RECALC_ALL_SPRINT_HOLIDAYS' });
         dispatch({ type: 'SET_TAB', tab: 'settings' });
         alert('Data imported successfully!');
       } catch (err) {
         alert(`Failed to import: ${err?.message || 'invalid JSON file.'}`);
+      } finally {
+        // Allow selecting the same file again after a failed or successful import.
+        input.value = '';
       }
     };
     reader.readAsText(file);
@@ -69,6 +148,161 @@ export default function Settings() {
   const handleReset = () => {
     if (window.confirm('Reset ALL data to defaults? This cannot be undone.')) {
       localStorage.clear(); window.location.reload();
+    }
+  };
+
+  const handleExportCsv = () => {
+    const header = [
+      'sprintName', 'startDate', 'endDate', 'committedPoints', 'completedPoints',
+      'scopeAddedPoints', 'scopeRemovedPoints', 'notes',
+    ];
+    const lines = [header.join(',')];
+    state.sprints.forEach(s => {
+      lines.push([
+        csvEscape(s.name),
+        csvEscape(s.startDate),
+        csvEscape(s.endDate),
+        csvEscape(s.committedPoints || 0),
+        csvEscape(s.completedPoints || 0),
+        csvEscape(s.scopeAddedPoints || 0),
+        csvEscape(s.scopeRemovedPoints || 0),
+        csvEscape(s.notes || ''),
+      ].join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'agile-velocity-sprints.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCsv = (e) => {
+    const input = e.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const text = String(ev.target?.result || '');
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        if (lines.length < 2) {
+          alert('CSV import failed: CSV has no data rows.');
+          input.value = '';
+          return;
+        }
+        const headers = parseCsvLine(lines[0]).map(h => h.trim());
+        const rows = lines.slice(1).map(line => {
+          const values = parseCsvLine(line);
+          const obj = {};
+          headers.forEach((h, i) => { obj[h] = values[i] ?? ''; });
+          return obj;
+        });
+
+        const isWorkItemExport = headers.some(h => /story points|estimate|effort/i.test(h))
+          && headers.some(h => /sprint|iteration/i.test(h));
+
+        const jiraMap = state.integrations?.jira?.mappings || {};
+        const azureMap = state.integrations?.azure?.mappings || {};
+        const sprintFields = uniqueTruthy([
+          jiraMap.sprint,
+          azureMap.sprint,
+          'Sprint', 'sprint', 'Iteration Path', 'Iteration', 'iteration', 'sprintName',
+        ]);
+        const pointsFields = uniqueTruthy([
+          jiraMap.points,
+          azureMap.points,
+          'Story Points', 'Story point estimate', 'Effort', 'Points', 'storyPoints',
+        ]);
+        const statusFields = uniqueTruthy([
+          jiraMap.status,
+          azureMap.status,
+          'Status', 'state', 'State',
+        ]);
+
+        let nextSprints;
+        if (isWorkItemExport) {
+          const grouped = {};
+          rows.forEach(r => {
+            const sprintName = pickFirst(r, sprintFields, 'Unassigned');
+            const points = Number(pickFirst(r, pointsFields, 0)) || 0;
+            const status = String(pickFirst(r, statusFields, '')).toLowerCase();
+            if (!grouped[sprintName]) {
+              grouped[sprintName] = {
+                id: `csv-${Date.now()}-${Object.keys(grouped).length}`,
+                name: sprintName,
+                startDate: '',
+                endDate: '',
+                committedPoints: 0,
+                completedPoints: 0,
+                scopeAddedPoints: 0,
+                scopeRemovedPoints: 0,
+                notes: 'Imported from work-item CSV (Jira/Azure format).',
+                memberCapacity: [],
+              };
+            }
+            grouped[sprintName].committedPoints += points;
+            if (/done|closed|resolved/.test(status)) grouped[sprintName].completedPoints += points;
+          });
+          nextSprints = Object.values(grouped);
+        } else {
+          nextSprints = rows.map((r, idx) => ({
+            id: `csv-${Date.now()}-${idx}`,
+            name: r.sprintName || `Imported Sprint ${idx + 1}`,
+            startDate: r.startDate || '',
+            endDate: r.endDate || '',
+            committedPoints: Number(r.committedPoints || 0),
+            completedPoints: Number(r.completedPoints || 0),
+            scopeAddedPoints: Number(r.scopeAddedPoints || 0),
+            scopeRemovedPoints: Number(r.scopeRemovedPoints || 0),
+            notes: r.notes || '',
+            memberCapacity: [],
+          }));
+        }
+        dispatch({ type: 'LOAD_STATE', payload: { ...state, sprints: nextSprints } });
+        alert(`Imported ${nextSprints.length} sprints from CSV${isWorkItemExport ? ' (work-item mode)' : ''}.`);
+      } catch (err) {
+        alert(`CSV import failed: ${err?.message || 'invalid file.'}`);
+      } finally {
+        input.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const deleteWorkspace = (workspaceId) => {
+    if (workspaceId === 'default') return; // Default workspace cannot be deleted
+    if (workspaceId === activeWorkspaceId) {
+      alert('Cannot delete the active workspace. Switch to another workspace first.');
+      return;
+    }
+    const ws = workspaces.find(w => w.id === workspaceId);
+    if (!ws) return;
+    if (!window.confirm(`Delete workspace "${ws.name}"? Its data will be permanently removed.`)) return;
+    try { localStorage.removeItem(ws.storageKey); } catch { /* ignore */ }
+    persistWorkspaceIndex(workspaces.filter(w => w.id !== workspaceId));
+  };
+
+  const switchWorkspace = (workspaceId) => {
+    const next = workspaces.find(w => w.id === workspaceId);
+    const current = workspaces.find(w => w.id === activeWorkspaceId);
+    if (!next || !current) return;
+    try {
+      localStorage.setItem(current.storageKey, JSON.stringify(state));
+      const saved = localStorage.getItem(next.storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const envelope = extractStateEnvelope(parsed);
+        const migrated = migrateStateBySchema(envelope.state, envelope.schemaVersion);
+        const normalized = sanitizeImportedState(migrated.state, state);
+        dispatch({ type: 'LOAD_STATE', payload: normalized });
+      }
+      localStorage.setItem(ACTIVE_WORKSPACE_KEY, next.id);
+      setActiveWorkspaceId(next.id);
+      dispatch({ type: 'SET_TAB', tab: 'settings' });
+    } catch {
+      alert('Failed to switch workspace.');
     }
   };
 
@@ -85,6 +319,42 @@ export default function Settings() {
       </div>
 
       {/* ── Sprint Configuration ── */}
+      <div className="card settings-section">
+        <h2 className="settings-section-title">🗂 Workspaces</h2>
+        <p className="settings-data-note">Create isolated workspaces for different teams or products and switch instantly.</p>
+        <div className="settings-data-actions">
+          <select className="settings-select" value={activeWorkspaceId} onChange={e => switchWorkspace(e.target.value)}>
+            {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}{w.id === activeWorkspaceId ? ' (active)' : ''}</option>)}
+          </select>
+          <input
+            className="settings-select"
+            placeholder="New workspace name"
+            value={workspaceName}
+            onChange={e => setWorkspaceName(e.target.value)}
+          />
+          <button className="btn btn-secondary" onClick={() => {
+            const name = workspaceName.trim();
+            if (!name) return;
+            const id = `ws-${Date.now()}`;
+            const ws = { id, name, storageKey: `agile_velocity_tool_state_${id}` };
+            // New workspace starts blank (default state) rather than copying current state
+            persistWorkspaceIndex([...workspaces, ws]);
+            setWorkspaceName('');
+          }}>
+            + Add Workspace
+          </button>
+          {activeWorkspaceId !== 'default' && (
+            <button
+              className="btn btn-danger"
+              title="Delete active workspace"
+              onClick={() => deleteWorkspace(activeWorkspaceId)}
+            >
+              🗑 Delete Workspace
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="card settings-section">
         <h2 className="settings-section-title">⏱ Sprint Configuration</h2>
 
@@ -266,7 +536,7 @@ export default function Settings() {
                   <div className="holiday-table-wrap">
                     {regionHolidays.length === 0 ? (
                       <div className="settings-empty" style={{ padding: '12px 0' }}>
-                        No holidays yet — click "+ Holiday" to add one.
+                        No holidays yet &mdash; click &ldquo;+ Holiday&rdquo; to add one.
                       </div>
                     ) : (
                       <table className="holiday-table">
@@ -402,13 +672,18 @@ export default function Settings() {
       <div className="card settings-section">
         <h2 className="settings-section-title">💾 Data Management</h2>
         <p className="settings-data-note">
-          All data is saved automatically to your browser's local storage. Use export/import to back up or transfer data.
+          All data is saved automatically to your browser&apos;s local storage. Use export/import to back up or transfer data.
         </p>
         <div className="settings-data-actions">
           <button className="btn btn-primary" onClick={handleExport}>⬇ Export JSON</button>
+          <button className="btn btn-secondary" onClick={handleExportCsv}>⬇ Export CSV</button>
           <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
             ⬆ Import JSON
             <input type="file" accept=".json" style={{ display: 'none' }} onChange={handleImport} />
+          </label>
+          <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+            ⬆ Import CSV
+            <input type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImportCsv} />
           </label>
           <button className="btn btn-danger" onClick={handleReset}>🗑 Reset All Data</button>
         </div>

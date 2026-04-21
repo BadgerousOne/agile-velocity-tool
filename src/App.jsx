@@ -15,6 +15,8 @@ import TeamMembers from './components/TeamMembers';
 import Sprints from './components/Sprints';
 import VelocityChart from './components/VelocityChart';
 import Forecast from './components/Forecast';
+import Releases from './components/Releases';
+import Integrations from './components/Integrations';
 import AIAssistant from './components/AIAssistant';
 import Settings from './components/Settings';
 import './App.css';
@@ -29,6 +31,8 @@ function AppContent() {
       case 'sprints':   return <Sprints />;
       case 'velocity':  return <VelocityChart />;
       case 'forecast':  return <Forecast />;
+      case 'releases':  return <Releases />;
+      case 'integrations': return <Integrations />;
       case 'ai':        return <AIAssistant />;
       case 'settings':  return <Settings />;
       default:          return <Dashboard />;

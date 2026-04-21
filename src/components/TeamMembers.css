@@ -167,6 +167,22 @@
   white-space: nowrap;
 }
 
+/* ── Absent (pre-joining) state in sparkline ── */
+.mah-bar-absent .mah-bar-track {
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+.mah-bar-absent-line {
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  margin: auto 0;
+  align-self: center;
+}
+.mah-bar-absent .mah-bar-name {
+  opacity: 0.4;
+}
+
 /* ── Holiday dot in sparkline ── */
 .mah-holiday-dot {
   font-size: 11px;

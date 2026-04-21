@@ -1,0 +1,48 @@
+.integrations-card {
+  margin-bottom: 16px;
+}
+
+.integrations-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.integrations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.integrations-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.integrations-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.integrations-test-result {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.integrations-test-result.ok {
+  color: var(--success);
+}
+
+.integrations-test-result.bad {
+  color: var(--danger);
+}
+

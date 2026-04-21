@@ -1,0 +1,220 @@
+.release-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.release-plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.release-plan-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.release-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.release-plan-grid label,
+.release-notes-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.release-plan-grid input,
+.release-notes-field input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.release-plan-metrics {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.release-plan-card .scenario-table-wrap,
+.release-plan-card .vel-table,
+.release-plan-card .vel-table td {
+  overflow: visible;
+}
+
+.release-plan-card .vel-table input,
+.release-plan-card .vel-table select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.release-plan-card .vel-table input::placeholder {
+  color: var(--text-muted);
+}
+
+.release-plan-card .vel-table input:focus,
+.release-plan-card .vel-table select:focus,
+.release-dependency-trigger:focus,
+.release-dependency-search:focus {
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 1px var(--primary-light);
+}
+
+.release-plan-card .vel-table input[type="date"] {
+  color-scheme: dark;
+}
+
+.release-milestones-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.release-milestones-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.release-milestone-actions-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.release-dependency-combobox {
+  position: relative;
+}
+
+.release-dependency-trigger {
+  min-width: 180px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.release-dependency-token-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.release-dependency-token {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card-hover);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.release-dependency-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 100;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+}
+
+.release-dependency-search {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.release-dependency-options {
+  overflow: auto;
+  max-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.release-dependency-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.release-dependency-option:hover {
+  background: var(--bg-card-hover);
+}
+
+.release-dependency-option.selected {
+  border-color: var(--primary-light);
+  color: var(--text-primary);
+}
+
+.release-dependency-option-check {
+  width: 14px;
+  color: var(--primary-light);
+  font-weight: 700;
+}
+
+.release-dependency-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px;
+}
+
+@media (max-width: 900px) {
+  .release-plan-head,
+  .release-milestones-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .release-milestones-actions {
+    flex-wrap: wrap;
+  }
+}
+
+

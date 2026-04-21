@@ -120,27 +120,6 @@ function memberCapacityRowWithHolidays(member, startDate, endDate, holidays) {
 }
 
 /**
- * Build a blank MemberCapacityRow for a team member.
- * Used when seeding a new sprint or adding a member to the roster.
- *
- * @param {{ id: string, name: string, allocation?: number }} member
- * @returns {MemberCapacityRow}
- */
-function memberCapacityRow(member) {
-  return {
-    memberId:    member.id,
-    memberName:  member.name,
-    allocation:  member.allocation ?? 100,
-    ptoDays:     0,
-    holidayDays: 0,
-    holidayNames: [],
-    supportDays: 0,
-    otherDays:   0,
-    otherLabel:  '',
-  };
-}
-
-/**
  * Seed a full memberCapacity array from the current team roster.
  * Used when creating the very first sprint (no previous sprint to carry forward from).
  *
@@ -149,6 +128,41 @@ function memberCapacityRow(member) {
  */
 function seedMemberCapacity(teamMembers, startDate, endDate, holidays) {
   return teamMembers.map(m => memberCapacityRowWithHolidays(m, startDate, endDate, holidays));
+}
+
+function createDefaultMilestone() {
+  return {
+    id: uuidv4(),
+    name: 'Production',
+    targetDate: '',
+    gate: '',
+    status: 'not_started',
+    notes: '',
+    dependsOnMilestoneIds: [],
+  };
+}
+
+function normalizeReleaseMilestones(milestones) {
+  if (!Array.isArray(milestones)) return [];
+  const normalized = milestones
+    .filter(Boolean)
+    .map(m => ({
+      id: m.id || uuidv4(),
+      name: m.name || '',
+      targetDate: m.targetDate || '',
+      gate: m.gate || '',
+      status: m.status || 'not_started',
+      notes: m.notes || '',
+      dependsOnMilestoneIds: Array.isArray(m.dependsOnMilestoneIds)
+        ? m.dependsOnMilestoneIds.filter(Boolean)
+        : [],
+    }));
+  const validIds = new Set(normalized.map(m => m.id));
+  return normalized.map(m => ({
+    ...m,
+    dependsOnMilestoneIds: [...new Set(m.dependsOnMilestoneIds)]
+      .filter(depId => depId !== m.id && validIds.has(depId)),
+  }));
 }
 
 /**
@@ -255,6 +269,52 @@ const defaultState = {
   sprintDurationDays: 14,
   supportImpactFactor: 0.8,
   sprintStartDay: 1, // 1 = Monday (0=Sun, 1=Mon, ..., 6=Sat)
+  releasePlans: [
+    {
+      id: uuidv4(),
+      name: 'MVP Release',
+      backlogPoints: 180,
+      targetDate: '2026-09-30',
+      notes: '',
+      milestones: [
+        {
+          id: uuidv4(),
+          name: 'Production',
+          targetDate: '2026-09-30',
+          gate: 'Go/No-Go approval',
+          status: 'not_started',
+          notes: '',
+          dependsOnMilestoneIds: [],
+        },
+      ],
+    },
+  ],
+  integrations: {
+    jira: {
+      connected: false,
+      baseUrl: '',
+      projectKey: '',
+      username: '',
+      token: '',
+      mappings: {
+        sprint: 'Sprint',
+        points: 'Story Points',
+        status: 'Status',
+      },
+    },
+    azure: {
+      connected: false,
+      organization: '',
+      project: '',
+      pat: '',
+      mappings: {
+        sprint: 'Iteration Path',
+        points: 'Story Points',
+        status: 'State',
+      },
+    },
+  },
+  aiActionAudit: [],
   schemaVersion: CURRENT_SCHEMA_VERSION,
   activeTab: 'dashboard',
   chatHistory: [],
@@ -279,6 +339,117 @@ export function reducer(state, action) {
       return sanitizeImportedState(migrated.state, state);
     }
     case 'SET_TAB':    return { ...state, activeTab: action.tab };
+
+    // ── Release Planning ───────────────────────────────────────────────────
+    case 'ADD_RELEASE':
+      return {
+        ...state,
+        releasePlans: [...(state.releasePlans || []), {
+          id: uuidv4(),
+          name: 'New Release',
+          backlogPoints: 100,
+          targetDate: '',
+          notes: '',
+          milestones: [createDefaultMilestone()],
+        }],
+      };
+    case 'UPDATE_RELEASE':
+      return {
+        ...state,
+        releasePlans: (state.releasePlans || []).map(r => {
+          if (r.id !== action.id) return r;
+          const next = { ...r, ...action.data };
+          return {
+            ...next,
+            milestones: normalizeReleaseMilestones(next.milestones),
+          };
+        }),
+      };
+    case 'REMOVE_RELEASE':
+      return {
+        ...state,
+        releasePlans: (state.releasePlans || []).filter(r => r.id !== action.id),
+      };
+    case 'ADD_RELEASE_MILESTONE':
+      return {
+        ...state,
+        releasePlans: (state.releasePlans || []).map(r => {
+          if (r.id !== action.releaseId) return r;
+          return {
+            ...r,
+            milestones: [...normalizeReleaseMilestones(r.milestones), createDefaultMilestone()],
+          };
+        }),
+      };
+    case 'UPDATE_RELEASE_MILESTONE':
+      return {
+        ...state,
+        releasePlans: (state.releasePlans || []).map(r => {
+          if (r.id !== action.releaseId) return r;
+          const existing = normalizeReleaseMilestones(r.milestones);
+          return {
+            ...r,
+            milestones: normalizeReleaseMilestones(existing.map(m =>
+              m.id === action.milestoneId ? { ...m, ...(action.data || {}) } : m
+            )),
+          };
+        }),
+      };
+    case 'REMOVE_RELEASE_MILESTONE':
+      return {
+        ...state,
+        releasePlans: (state.releasePlans || []).map(r => {
+          if (r.id !== action.releaseId) return r;
+          const retained = normalizeReleaseMilestones(r.milestones).filter(m => m.id !== action.milestoneId);
+          return {
+            ...r,
+            milestones: retained.map(m => ({
+              ...m,
+              dependsOnMilestoneIds: (m.dependsOnMilestoneIds || []).filter(id => id !== action.milestoneId),
+            })),
+          };
+        }),
+      };
+
+    // ── Integrations ───────────────────────────────────────────────────────
+    case 'UPDATE_INTEGRATION': {
+      return {
+        ...state,
+        integrations: {
+          ...(state.integrations || {}),
+          [action.provider]: {
+            ...(state.integrations?.[action.provider] || {}),
+            ...(action.data || {}),
+          },
+        },
+      };
+    }
+    case 'UPDATE_INTEGRATION_MAPPING': {
+      const current = state.integrations?.[action.provider] || {};
+      return {
+        ...state,
+        integrations: {
+          ...(state.integrations || {}),
+          [action.provider]: {
+            ...current,
+            mappings: {
+              ...(current.mappings || {}),
+              [action.field]: action.value,
+            },
+          },
+        },
+      };
+    }
+    case 'ADD_AI_ACTION_AUDIT': {
+      const next = [...(state.aiActionAudit || []), {
+        id: uuidv4(),
+        at: new Date().toISOString(),
+        ...action.entry,
+      }];
+      return { ...state, aiActionAudit: next.slice(-100) };
+    }
+    case 'CLEAR_AI_ACTION_AUDIT':
+      return { ...state, aiActionAudit: [] };
 
     // ── Regions ───────────────────────────────────────────────────────────
     case 'ADD_REGION':
@@ -417,6 +588,8 @@ export function reducer(state, action) {
           endDate,
           committedPoints:          suggestedCommitted,
           suggestedCommittedPoints: suggestedCommitted, // snapshot for override indicator
+          scopeAddedPoints: 0,
+          scopeRemovedPoints: 0,
           completedPoints: 0,
           notes: '',
           memberCapacity,
@@ -458,6 +631,121 @@ export function reducer(state, action) {
 
     case 'REMOVE_SPRINT':
       return { ...state, sprints: state.sprints.filter(s => s.id !== action.id) };
+
+    /**
+     * MOVE_SPRINT — reorders an incomplete sprint up or down in the array.
+     * direction: 'up' (toward index 0) | 'down' (toward end).
+     * A sprint is considered complete when completedPoints > 0 and cannot be moved.
+     * The swap is also blocked if the adjacent sprint is complete.
+     */
+    case 'MOVE_SPRINT': {
+      const { id, direction } = action;
+      const sprints = [...state.sprints];
+      const idx = sprints.findIndex(s => s.id === id);
+      if (idx === -1) return state;
+      if ((sprints[idx].completedPoints || 0) > 0) return state; // complete sprints are locked
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= sprints.length) return state;
+      if ((sprints[targetIdx].completedPoints || 0) > 0) return state; // can't move past a complete sprint
+      [sprints[idx], sprints[targetIdx]] = [sprints[targetIdx], sprints[idx]];
+      return { ...state, sprints };
+    }
+
+    /**
+     * CLONE_SPRINT — duplicates an existing sprint's team roster and allocations
+     * into a new sprint appended after it. Resets day-off fields and points.
+     */
+    case 'CLONE_SPRINT': {
+      const source = state.sprints.find(s => s.id === action.id);
+      if (!source) return state;
+      const num      = state.sprints.length + 1;
+      const holidays = state.holidays || [];
+      const startDate = source.endDate || '';
+      const endDate   = calcSprintEndDate(startDate, state.sprintDurationDays);
+
+      const memberCapacity = (source.memberCapacity || []).map(r => {
+        const member = state.teamMembers.find(m => m.id === r.memberId);
+        const { count, names } = countHolidaysInSprint(member?.regionId, startDate, endDate, holidays);
+        return {
+          ...r,
+          ptoDays:      count,
+          holidayDays:  count,
+          holidayNames: names,
+          supportDays:  0,
+          otherDays:    0,
+          otherLabel:   '',
+        };
+      });
+
+      return {
+        ...state,
+        sprints: [...state.sprints, {
+          ...source,
+          id: uuidv4(),
+          name: `Sprint ${num}`,
+          startDate,
+          endDate,
+          committedPoints:          source.suggestedCommittedPoints ?? source.committedPoints,
+          suggestedCommittedPoints: source.suggestedCommittedPoints,
+          completedPoints:          0,
+          scopeAddedPoints:         0,
+          scopeRemovedPoints:       0,
+          notes: '',
+          memberCapacity,
+        }],
+      };
+    }
+
+    /**
+     * BULK_TEAM_DAY_OFF — adjusts otherDays by `days` for every member in a sprint.
+     * Pass a positive value to add, negative to remove. Clamps at 0.
+     * Clears the otherLabel when the count reaches 0.
+     */
+    case 'BULK_TEAM_DAY_OFF': {
+      const delta = Number(action.days) || 1;
+      return {
+        ...state,
+        sprints: state.sprints.map(s => {
+          if (s.id !== action.sprintId) return s;
+          return {
+            ...s,
+            memberCapacity: (s.memberCapacity || []).map(r => {
+              const nextDays = Math.max(0, (r.otherDays || 0) + delta);
+              return {
+                ...r,
+                otherDays: nextDays,
+                otherLabel: nextDays === 0 ? '' : (r.otherLabel || 'Team Day Off'),
+              };
+            }),
+          };
+        }),
+      };
+    }
+
+    /**
+     * RECALC_ALL_SPRINT_HOLIDAYS — re-applies holiday data for every sprint.
+     * Called after importing state so existing sprints match the current holiday calendar.
+     */
+    case 'RECALC_ALL_SPRINT_HOLIDAYS': {
+      const holidays = state.holidays || [];
+      return {
+        ...state,
+        sprints: state.sprints.map(s => ({
+          ...s,
+          memberCapacity: (s.memberCapacity || []).map(r => {
+            const member = state.teamMembers.find(m => m.id === r.memberId);
+            const { count, names } = countHolidaysInSprint(member?.regionId, s.startDate, s.endDate, holidays);
+            const extraManual = Math.max(0, (r.ptoDays || 0) - (r.holidayDays || 0));
+            return {
+              ...r,
+              holidayDays:  count,
+              holidayNames: names,
+              ptoDays:      count + extraManual,
+            };
+          }),
+        })),
+      };
+    }
 
     case 'UPDATE_SPRINT_MEMBER_CAPACITY':
       return {
@@ -502,12 +790,12 @@ export function VelocityProvider({ children }) {
         const migrated = migrateStateBySchema(envelope.state, envelope.schemaVersion);
         return sanitizeImportedState(migrated.state, defaultState);
       }
-    } catch {}
+    } catch { /* ignore parse/storage errors, fall through to default */ }
     return defaultState;
   });
 
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore quota errors */ }
   }, [state]);
 
   return (

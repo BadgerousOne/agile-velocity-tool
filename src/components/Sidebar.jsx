@@ -8,6 +8,8 @@ const NAV_ITEMS = [
   { id: 'sprints',    label: 'Sprints',       icon: '🏃' },
   { id: 'velocity',   label: 'Velocity',      icon: '📈' },
   { id: 'forecast',   label: 'Forecast',      icon: '🔭' },
+  { id: 'releases',   label: 'Releases',      icon: '🗺️' },
+  { id: 'integrations', label: 'Integrations', icon: '🔌' },
   { id: 'ai',         label: 'AI Assistant',  icon: '🤖' },
   { id: 'settings',   label: 'Settings',      icon: '⚙️' },
 ];
@@ -44,6 +46,8 @@ export default function Sidebar() {
         <div className="sidebar-footer-value">{state.teamMembers.length} members</div>
         <div className="sidebar-footer-label" style={{ marginTop: 6 }}>Sprints Tracked</div>
         <div className="sidebar-footer-value">{state.sprints.length} sprints</div>
+        <div className="sidebar-footer-label" style={{ marginTop: 6 }}>Releases</div>
+        <div className="sidebar-footer-value">{(state.releasePlans || []).length} plans</div>
       </div>
     </aside>
   );

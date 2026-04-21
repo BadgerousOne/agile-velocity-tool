@@ -75,7 +75,7 @@ export default function TeamMembers() {
           <div className="ramp-info-title">Per-Sprint Allocation &amp; Holiday Auto-Fill</div>
           <div className="ramp-info-body">
             Allocation is set <strong>per sprint</strong> in the <strong>Sprints → Capacity Impact</strong> tab.
-            Each member's <strong>Region</strong> determines which public holidays are automatically applied
+            Each member&apos;s <strong>Region</strong> determines which public holidays are automatically applied
             as PTO days when a new sprint is created. Manage regions and holidays in <strong>Settings</strong>.
           </div>
         </div>
@@ -154,17 +154,27 @@ export default function TeamMembers() {
                   <div className="mah-label">Allocation history</div>
                   <div className="mah-bars">
                     {state.sprints.map(s => {
-                      const row   = (s.memberCapacity || []).find(r => r.memberId === member.id);
+                      const row = (s.memberCapacity || []).find(r => r.memberId === member.id);
+                      const notOnTeam = !row; // member was added after this sprint was created
                       const alloc = row?.allocation ?? 100;
                       const color = alloc >= 80 ? 'var(--success)' : alloc >= 50 ? 'var(--warning)' : 'var(--danger)';
                       const hdays = row?.holidayDays || 0;
                       return (
-                        <div key={s.id} className="mah-bar-wrap"
-                          title={`${s.name}: ${alloc}%${hdays ? ` · ${hdays} holiday day${hdays !== 1 ? 's' : ''}` : ''}`}>
+                        <div
+                          key={s.id}
+                          className={`mah-bar-wrap${notOnTeam ? ' mah-bar-absent' : ''}`}
+                          title={notOnTeam
+                            ? `${s.name}: not on team yet`
+                            : `${s.name}: ${alloc}%${hdays ? ` · ${hdays} holiday day${hdays !== 1 ? 's' : ''}` : ''}`
+                          }
+                        >
+                          {!notOnTeam && hdays > 0 && <div className="mah-holiday-dot" title={row?.holidayNames?.join(', ')}>🗓</div>}
                           <div className="mah-bar-track">
-                            <div className="mah-bar-fill" style={{ height: `${alloc}%`, background: color }} />
+                            {notOnTeam
+                              ? <div className="mah-bar-absent-line" />
+                              : <div className="mah-bar-fill" style={{ height: `${alloc}%`, background: color }} />
+                            }
                           </div>
-                          {hdays > 0 && <div className="mah-holiday-dot" title={row?.holidayNames?.join(', ')}>🗓</div>}
                           <div className="mah-bar-name">{s.name.replace('Sprint ', 'S')}</div>
                         </div>
                       );
@@ -180,7 +190,7 @@ export default function TeamMembers() {
           <div className="empty-state card">
             <div className="empty-icon">👥</div>
             <div className="empty-title">No team members yet</div>
-            <div className="empty-sub">Click "Add Member" to get started</div>
+            <div className="empty-sub">Click &ldquo;Add Member&rdquo; to get started</div>
           </div>
         )}
       </div>

@@ -242,3 +242,177 @@ export function buildChartData(sprints, sprintDays = 14, supportImpactFactor = 0
     };
   });
 }
+
+/**
+ * Run a Monte Carlo simulation over historical completed points and return
+ * sprint-count percentiles for finishing a backlog.
+ *
+ * @param {object} params
+ * @param {number} params.backlogPoints
+ * @param {Sprint[]} params.sprints
+ * @param {number} [params.allocationFactor=1]
+ * @param {number} [params.iterations=2000]
+ * @returns {{ p50: number|null, p80: number|null, p90: number|null, probabilityBySprint: object, sampleSize: number }}
+ */
+export function runMonteCarloForecast({
+  backlogPoints,
+  sprints,
+  allocationFactor = 1,
+  iterations = 2000,
+}) {
+  const historical = (sprints || [])
+    .map(s => Number(s.completedPoints || 0))
+    .filter(v => Number.isFinite(v) && v > 0);
+
+  if (!historical.length || !Number.isFinite(backlogPoints) || backlogPoints <= 0) {
+    return { p50: null, p80: null, p90: null, probabilityBySprint: {}, sampleSize: historical.length };
+  }
+
+  const cappedAllocation = Math.max(0, allocationFactor);
+  const runs = [];
+  for (let i = 0; i < iterations; i++) {
+    let remaining = backlogPoints;
+    let sprintCount = 0;
+
+    // Safety cap prevents pathological loops if allocation is zero.
+    while (remaining > 0 && sprintCount < 500) {
+      const pick = historical[Math.floor(Math.random() * historical.length)] * cappedAllocation;
+      remaining -= Math.max(0.1, pick);
+      sprintCount += 1;
+    }
+    runs.push(sprintCount);
+  }
+
+  runs.sort((a, b) => a - b);
+  const percentile = p => runs[Math.min(runs.length - 1, Math.floor(runs.length * p))];
+
+  const maxSprints = runs[runs.length - 1];
+  const probabilityBySprint = {};
+  for (let s = 1; s <= maxSprints; s++) {
+    const done = runs.filter(v => v <= s).length;
+    probabilityBySprint[s] = parseFloat(((done / runs.length) * 100).toFixed(1));
+  }
+
+  return {
+    p50: percentile(0.5),
+    p80: percentile(0.8),
+    p90: percentile(0.9),
+    probabilityBySprint,
+    sampleSize: historical.length,
+  };
+}
+
+/**
+ * Build lightweight health alerts from recent sprint behavior.
+ */
+export function buildHealthSignals(sprints, sprintDays = 14, supportImpactFactor = 0.8) {
+  if (!Array.isArray(sprints) || sprints.length < 2) return [];
+
+  const recent = sprints.slice(-3);
+  const previous = sprints.slice(-6, -3);
+  const recentAvg = calcAverageVelocity(recent);
+  const previousAvg = previous.length ? calcAverageVelocity(previous) : null;
+  const latest = sprints[sprints.length - 1];
+  const util = latest?.memberCapacity?.length
+    ? calcCapacityUtilization(latest.memberCapacity, sprintDays, supportImpactFactor)
+    : null;
+  const predictability = calcPredictability(recent);
+  const latestTotals = latest ? sprintCapacityTotals(latest) : { supportDays: 0, ptoDays: 0 };
+
+  const alerts = [];
+  if (previousAvg != null && previousAvg > 0 && recentAvg < previousAvg * 0.85) {
+    alerts.push({
+      severity: 'high',
+      title: 'Velocity dropped vs prior baseline',
+      detail: `Last 3 sprints average ${recentAvg} vs prior baseline ${previousAvg}.`,
+    });
+  }
+  if (util != null && util < 75) {
+    alerts.push({
+      severity: 'medium',
+      title: 'Capacity utilization is low',
+      detail: `Latest sprint utilization is ${util}%. Interruption load is likely impacting delivery.`,
+    });
+  }
+  if (predictability < 80) {
+    alerts.push({
+      severity: 'medium',
+      title: 'Predictability is below target',
+      detail: `Recent commitment hit rate is ${predictability}%. Consider reducing sprint scope volatility.`,
+    });
+  }
+  if ((latestTotals.supportDays || 0) >= sprintDays) {
+    alerts.push({
+      severity: 'low',
+      title: 'Support load is unusually high',
+      detail: `Latest sprint recorded ${latestTotals.supportDays} support days.`,
+    });
+  }
+
+  // Scope creep: flag when scope-added points are significant across recent sprints
+  const scopeCreepSprints = recent.filter(s => {
+    const added = s.scopeAddedPoints || 0;
+    const committed = s.committedPoints || 0;
+    return committed > 0 && added / committed >= 0.25;
+  });
+  if (scopeCreepSprints.length >= 2) {
+    const avgAdded = parseFloat(
+      (scopeCreepSprints.reduce((sum, s) => sum + (s.scopeAddedPoints || 0), 0) / scopeCreepSprints.length).toFixed(1)
+    );
+    alerts.push({
+      severity: 'medium',
+      title: 'Recurring scope creep detected',
+      detail: `${scopeCreepSprints.length} of the last ${recent.length} sprints had scope added mid-sprint (avg ${avgAdded} pts added). Consider tightening sprint scope gates.`,
+    });
+  }
+
+  return alerts;
+}
+
+/**
+ * Scale committed points by the team's currently available capacity for the sprint.
+ *
+ * Baseline capacity assumes each listed member is available at 100% allocation
+ * for the whole sprint. Current available capacity uses entered allocation and
+ * treats PTO/support/other as full-day losses.
+ *
+ * availableDays = (allocation% × sprintDays) − PTO − support − other.
+ * baselineDays  = memberCount × sprintDays.
+ *
+ * @param {number} committedPoints
+ * @param {Array} memberCapacity
+ * @param {number} sprintDays
+ * @returns {{ adjustedPoints: number, capacityRatio: number, availableDays: number, rawDays: number }}
+ */
+export function calcCapacityAdjustedCommitment(
+  committedPoints = 0,
+  memberCapacity = [],
+  sprintDays = 14
+) {
+  const rows = memberCapacity || [];
+  const rawDays = rows.length * sprintDays;
+
+  if (!rawDays) {
+    return {
+      adjustedPoints: 0,
+      capacityRatio: 0,
+      availableDays: 0,
+      rawDays: 0,
+    };
+  }
+
+  const availableDays = rows.reduce((sum, row) => {
+    const alloc = (row.allocation ?? 100) / 100;
+    const totalOff = (row.ptoDays || 0) + (row.supportDays || 0) + (row.otherDays || 0);
+    return sum + Math.max(0, (alloc * sprintDays) - totalOff);
+  }, 0);
+
+  const capacityRatio = availableDays / rawDays;
+  return {
+    adjustedPoints: Math.round((Number(committedPoints || 0) * capacityRatio) * 10) / 10,
+    capacityRatio: Math.round(capacityRatio * 1000) / 1000,
+    availableDays: Math.round(availableDays * 10) / 10,
+    rawDays: Math.round(rawDays * 10) / 10,
+  };
+}
+

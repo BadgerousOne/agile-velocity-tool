@@ -17,9 +17,10 @@
  *  - MemberCapacityTable — the per-member capacity table inside the Capacity Impact tab
  *  - SprintRow           — a single expandable sprint card
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import { aggregateCapacity, calcSprintEndDate } from '../context/VelocityContext';
+import { calcCapacityAdjustedCommitment } from '../utils/velocityCalc';
 import './Sprints.css';
 
 // ── Per-member capacity table inside an expanded sprint ───────────────────────
@@ -27,10 +28,26 @@ function MemberCapacityTable({ sprint, onUpdateMember, sprintDurationDays }) {
   const rows   = sprint.memberCapacity || [];
   const totals = aggregateCapacity(rows);
   const totalEffectiveFTEs = rows.reduce((s, r) => s + (r.allocation ?? 100) / 100, 0).toFixed(2);
+  const baselineCommitted = Number.isFinite(sprint.capacityBaselineCommittedPoints)
+    ? sprint.capacityBaselineCommittedPoints
+    : Number(sprint.committedPoints || 0);
+  const commitmentView = calcCapacityAdjustedCommitment(
+    baselineCommitted,
+    rows,
+    sprintDurationDays || 14
+  );
 
   return (
     <div className="mc-wrap">
-      <div className="mc-title">👤 Per-Member Capacity Impact</div>
+      <div className="mc-title-row">
+        <div className="mc-title">👤 Per-Member Capacity Impact</div>
+        <div className="mc-title-metrics">
+          <span className="mc-title-badge base">Committed {sprint.committedPoints || 0} pts</span>
+          <span className="mc-title-badge adjusted" title="Read-only, based on current capacity inputs in this table.">
+            Current Capacity {Math.round(commitmentView.adjustedPoints)} pts
+          </span>
+        </div>
+      </div>
       <div className="mc-table-wrap">
         <table className="mc-table">
           <thead>
@@ -58,6 +75,9 @@ function MemberCapacityTable({ sprint, onUpdateMember, sprintDurationDays }) {
               const allocColor = alloc >= 80 ? 'var(--success)' : alloc >= 50 ? 'var(--warning)' : 'var(--danger)';
               const hdays      = row.holidayDays || 0;
               const hnames     = row.holidayNames || [];
+              const holidayTooltip = hnames.length
+                ? `Holiday${hnames.length > 1 ? 's' : ''}: ${hnames.join(', ')}`
+                : `${hdays} holiday day(s)`;
               return (
                 <tr key={row.memberId}>
                   <td className="mc-member-name">
@@ -68,14 +88,27 @@ function MemberCapacityTable({ sprint, onUpdateMember, sprintDurationDays }) {
                   {/* ── Allocation slider ── */}
                   <td className="mc-alloc-cell">
                     <div className="mc-alloc-wrap">
-                      <input
-                        type="range"
-                        min={0} max={100} step={5}
-                        value={alloc}
-                        className="mc-alloc-slider"
-                        onChange={e => onUpdateMember(row.memberId, { allocation: Number(e.target.value) })}
-                      />
-                      <span className="mc-alloc-val" style={{ color: allocColor }}>{alloc}%</span>
+                      <div className="mc-alloc-holiday-slot">
+                        {hdays > 0 && (
+                          <span
+                            className="mc-alloc-holiday-badge"
+                            title={holidayTooltip}
+                            aria-label={holidayTooltip}
+                          >
+                            🗓 {hdays}d
+                          </span>
+                        )}
+                      </div>
+                      <div className="mc-alloc-slider-row">
+                        <input
+                          type="range"
+                          min={0} max={100} step={5}
+                          value={alloc}
+                          className="mc-alloc-slider"
+                          onChange={e => onUpdateMember(row.memberId, { allocation: Number(e.target.value) })}
+                        />
+                        <span className="mc-alloc-val" style={{ color: allocColor }}>{alloc}%</span>
+                      </div>
                     </div>
                     {alloc < 50 && (
                       <div className="mc-alloc-warn">⚠ Ramping up</div>
@@ -97,9 +130,10 @@ function MemberCapacityTable({ sprint, onUpdateMember, sprintDurationDays }) {
                     {hdays > 0
                       ? <span
                           className="mc-holiday-badge"
-                          title={hnames.length ? hnames.join(', ') : `${hdays} holiday day(s)`}
+                          title={holidayTooltip}
+                          aria-label={holidayTooltip}
                         >
-                          🗓 {hdays}d
+                          {hdays}d
                         </span>
                       : <span className="mc-holiday-none">—</span>
                     }
@@ -187,7 +221,7 @@ function MemberCapacityTable({ sprint, onUpdateMember, sprintDurationDays }) {
 }
 
 // ── Individual sprint row ─────────────────────────────────────────────────────
-function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHolidays, sprintDurationDays }) {
+function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHolidays, onClone, onBulkDayOff, onMoveUp, onMoveDown, sprintDurationDays }) {
   const [open, setOpen]           = useState(false);
   const [tab, setTab]             = useState('details');
   const [endOverride, setEndOverride] = useState(false); // true = user is editing end date manually
@@ -199,7 +233,9 @@ function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHoliday
 
   const totals     = aggregateCapacity(sprint.memberCapacity || []);
   const totalOff   = totals.ptoDays + totals.supportDays + totals.otherDays;
-  const memberCount = (sprint.memberCapacity || []).length;
+  const scopeAdded = sprint.scopeAddedPoints || 0;
+  const scopeRemoved = sprint.scopeRemovedPoints || 0;
+  const netScope = scopeAdded - scopeRemoved;
 
   return (
     <div className="sprint-card card">
@@ -228,6 +264,18 @@ function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHoliday
             <span className="sprint-pct" style={{ color: statusColor }}>{pct}%</span>
           </div>
           <div className="sprint-pts">{sprint.completedPoints}/{sprint.committedPoints} pts</div>
+          {(scopeAdded > 0 || scopeRemoved > 0) && (
+            <div className="sprint-pts" title="Scope changes during sprint">
+              Scope {netScope >= 0 ? '+' : ''}{netScope}
+            </div>
+          )}
+          {onMoveUp && (
+            <button className="btn btn-secondary sprint-move" title="Move sprint up" onClick={e => { e.stopPropagation(); onMoveUp(); }}>▲</button>
+          )}
+          {onMoveDown && (
+            <button className="btn btn-secondary sprint-move" title="Move sprint down" onClick={e => { e.stopPropagation(); onMoveDown(); }}>▼</button>
+          )}
+          <button className="btn btn-secondary sprint-clone" title="Clone this sprint" onClick={e => { e.stopPropagation(); onClone(); }}>⧉ Clone</button>
           <button className="btn btn-danger sprint-del" onClick={e => { e.stopPropagation(); onRemove(); }}>🗑</button>
         </div>
       </div>
@@ -296,13 +344,22 @@ function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHoliday
                   {(() => {
                     const suggested    = sprint.suggestedCommittedPoints;
                     const isOverridden = suggested != null && sprint.committedPoints !== suggested;
+                    const baselineCommitted = Number.isFinite(sprint.capacityBaselineCommittedPoints)
+                      ? sprint.capacityBaselineCommittedPoints
+                      : Number(sprint.committedPoints || 0);
                     return (
                       <div className="committed-wrap">
                         <input
                           type="number" min={0}
                           value={sprint.committedPoints}
                           className={isOverridden ? 'overridden' : ''}
-                          onChange={e => onUpdate({ committedPoints: Number(e.target.value) })}
+                          onChange={e => {
+                            const points = Number(e.target.value);
+                            onUpdate({
+                              committedPoints: points,
+                              capacityBaselineCommittedPoints: points,
+                            });
+                          }}
                         />
                         {suggested != null && (
                           <div className="committed-hint">
@@ -312,7 +369,22 @@ function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHoliday
                                 <button
                                   className="committed-reset-btn"
                                   title={`Reset to velocity-based suggestion (${suggested} pts)`}
-                                  onClick={() => onUpdate({ committedPoints: suggested })}
+                                  onClick={() => {
+                                    const resetMemberCapacity = (sprint.memberCapacity || []).map(row => ({
+                                      ...row,
+                                      allocation: 100,
+                                      ptoDays: row.holidayDays || 0,
+                                      supportDays: 0,
+                                      otherDays: 0,
+                                      otherLabel: '',
+                                    }));
+
+                                    onUpdate({
+                                      committedPoints: suggested,
+                                      capacityBaselineCommittedPoints: suggested,
+                                      memberCapacity: resetMemberCapacity,
+                                    });
+                                  }}
                                 >
                                   ↩ Reset to {suggested}
                                 </button>
@@ -324,6 +396,9 @@ function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHoliday
                             )}
                           </div>
                         )}
+                        <div className="committed-sync-hint">
+                          Auto-sync from Capacity Impact using baseline {Math.round(baselineCommitted)} pts (at 100% capacity)
+                        </div>
                       </div>
                     );
                   })()}
@@ -331,6 +406,24 @@ function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHoliday
 
                 <label>Completed Points
                   <input type="number" min={0} value={sprint.completedPoints} onChange={e => onUpdate({ completedPoints: Number(e.target.value) })} />
+                </label>
+
+                <label>Scope Added (Points)
+                  <input
+                    type="number"
+                    min={0}
+                    value={scopeAdded}
+                    onChange={e => onUpdate({ scopeAddedPoints: Number(e.target.value) })}
+                  />
+                </label>
+
+                <label>Scope Removed (Points)
+                  <input
+                    type="number"
+                    min={0}
+                    value={scopeRemoved}
+                    onChange={e => onUpdate({ scopeRemovedPoints: Number(e.target.value) })}
+                  />
                 </label>
               </div>
               <label className="notes-label">Sprint Notes
@@ -346,11 +439,31 @@ function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHoliday
           )}
 
           {tab === 'capacity' && (
-            <MemberCapacityTable
-              sprint={sprint}
-              onUpdateMember={onUpdateMember}
-              sprintDurationDays={sprintDurationDays}
-            />
+            <>
+              <div className="sprint-bulk-actions">
+                <span className="sprint-bulk-label">Team-wide:</span>
+                <button
+                  className="btn btn-secondary"
+                  title="Add 1 unplanned day off to every team member (e.g. company all-hands, office closure)"
+                  onClick={() => onBulkDayOff(1)}
+                >
+                  📅 +1 Team Day Off
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  title="Remove 1 team day off from every team member"
+                  onClick={() => onBulkDayOff(-1)}
+                  disabled={!(sprint.memberCapacity || []).some(r => (r.otherDays || 0) > 0)}
+                >
+                  📅 -1 Team Day Off
+                </button>
+              </div>
+              <MemberCapacityTable
+                sprint={sprint}
+                onUpdateMember={onUpdateMember}
+                sprintDurationDays={sprintDurationDays}
+              />
+            </>
           )}
         </div>
       )}
@@ -361,6 +474,19 @@ function SprintRow({ sprint, onUpdate, onUpdateMember, onRemove, onRecalcHoliday
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function Sprints() {
   const { state, dispatch } = useVelocity();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const displaySprints = useMemo(() => {
+    return state.sprints.filter(sprint => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        sprint.name.toLowerCase().includes(q) ||
+        (sprint.startDate || '').includes(q) ||
+        (sprint.endDate || '').includes(q)
+      );
+    });
+  }, [state.sprints, searchQuery]);
 
   // Aggregate totals across all sprints for the summary bar
   const allTotals = state.sprints.reduce((acc, s) => {
@@ -379,6 +505,24 @@ export default function Sprints() {
           + New Sprint
         </button>
       </div>
+
+      {state.sprints.length > 1 && (
+        <div className="sprint-search-bar">
+          <input
+            type="text"
+            className="sprint-search-input"
+            placeholder="Search sprints by name or date…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button className="btn btn-secondary sprint-search-clear" onClick={() => setSearchQuery('')}>✕ Clear</button>
+          )}
+          {searchQuery && (
+            <span className="sprint-search-count">{displaySprints.length} of {state.sprints.length} sprint{state.sprints.length !== 1 ? 's' : ''}</span>
+          )}
+        </div>
+      )}
 
       {/* All-sprint summary */}
       {state.sprints.length > 0 && (
@@ -407,27 +551,68 @@ export default function Sprints() {
       )}
 
       <div className="sprint-list">
-        {state.sprints.map(sprint => (
+        {displaySprints.map((sprint, displayIdx) => {
+          const isIncomplete = (sprint.completedPoints || 0) === 0;
+          const isSearching  = searchQuery.trim().length > 0;
+
+          // Reorder buttons are only available for incomplete sprints when not searching
+          const canMoveUp   = isIncomplete && !isSearching && displayIdx > 0
+            && (displaySprints[displayIdx - 1].completedPoints || 0) === 0;
+          const canMoveDown = isIncomplete && !isSearching && displayIdx < displaySprints.length - 1
+            && (displaySprints[displayIdx + 1].completedPoints || 0) === 0;
+
+          return (
           <SprintRow
             key={sprint.id}
             sprint={sprint}
             sprintDurationDays={state.sprintDurationDays}
+            onMoveUp={canMoveUp ? () => dispatch({ type: 'MOVE_SPRINT', id: sprint.id, direction: 'up' }) : null}
+            onMoveDown={canMoveDown ? () => dispatch({ type: 'MOVE_SPRINT', id: sprint.id, direction: 'down' }) : null}
             onUpdate={data => dispatch({ type: 'UPDATE_SPRINT', id: sprint.id, data })}
-            onUpdateMember={(memberId, data) => dispatch({
-              type: 'UPDATE_SPRINT_MEMBER_CAPACITY',
-              sprintId: sprint.id,
-              memberId,
-              data,
-            })}
+            onUpdateMember={(memberId, data) => {
+              const currentRows = sprint.memberCapacity || [];
+              const nextRows = currentRows.map(row =>
+                row.memberId === memberId ? { ...row, ...data } : row
+              );
+
+              const baselineCommitted = Number.isFinite(sprint.capacityBaselineCommittedPoints)
+                ? sprint.capacityBaselineCommittedPoints
+                : Number(sprint.committedPoints || 0);
+
+              const adjusted = calcCapacityAdjustedCommitment(
+                baselineCommitted,
+                nextRows,
+                state.sprintDurationDays
+              );
+
+              dispatch({
+                type: 'UPDATE_SPRINT_MEMBER_CAPACITY',
+                sprintId: sprint.id,
+                memberId,
+                data,
+              });
+
+              dispatch({
+                type: 'UPDATE_SPRINT',
+                id: sprint.id,
+                data: {
+                  committedPoints: Math.round(adjusted.adjustedPoints),
+                  capacityBaselineCommittedPoints: baselineCommitted,
+                },
+              });
+            }}
             onRecalcHolidays={() => dispatch({ type: 'RECALC_SPRINT_HOLIDAYS', sprintId: sprint.id })}
+            onClone={() => dispatch({ type: 'CLONE_SPRINT', id: sprint.id })}
+            onBulkDayOff={(days) => dispatch({ type: 'BULK_TEAM_DAY_OFF', sprintId: sprint.id, days })}
             onRemove={() => dispatch({ type: 'REMOVE_SPRINT', id: sprint.id })}
           />
-        ))}
+          );
+        })}
         {state.sprints.length === 0 && (
           <div className="empty-state card">
             <div className="empty-icon">🏃</div>
             <div className="empty-title">No sprints yet</div>
-            <div className="empty-sub">Click "New Sprint" to add your first sprint</div>
+            <div className="empty-sub">Click &ldquo;New Sprint&rdquo; to add your first sprint</div>
           </div>
         )}
       </div>

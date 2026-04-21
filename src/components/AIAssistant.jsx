@@ -17,7 +17,7 @@
  * Ollama requires a local install (ollama.com) with `ollama serve` running.
  * All other providers make direct browser fetch() calls to their respective APIs.
  */
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import {
   calcAverageVelocity, calcWeightedVelocity,
@@ -174,6 +174,17 @@ async function callProvider(providerId, apiKey, model, messages) {
   }
 }
 
+function extractActionFromMessage(content) {
+  if (!content || typeof content !== 'string') return null;
+  const match = content.match(/ACTION_JSON:\s*(\{[\s\S]*})/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
 // ─── System Prompt ────────────────────────────────────────────────────────────
 function buildSystemPrompt(state) {
   const { teamMembers, sprints, sprintDurationDays, supportImpactFactor } = state;
@@ -230,6 +241,9 @@ ${sprintSummary || '  (none)'}
 - Help interpret metrics, spot risks, and guide planning decisions.
 - Suggest ways to improve velocity, predictability, and team health.
 - Be concise, friendly, and practical.
+- When suggesting an app action, append one machine-readable line:
+  ACTION_JSON: {"action":"set_committed_points","points":42}
+  Allowed actions: set_committed_points, add_sprint, set_support_impact
 - Today's date is ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.`;
 }
 
@@ -257,10 +271,16 @@ export default function AIAssistant() {
   const [input, setInput]     = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
   const bottomRef = useRef(null);
 
   const provider = PROVIDERS[providerId];
   const messages = state.chatHistory;
+  const aiActionAudit = state.aiActionAudit || [];
+  const latestAssistantAction = useMemo(() => {
+    const latestAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    return extractActionFromMessage(latestAssistant?.content);
+  }, [messages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -314,6 +334,92 @@ export default function AIAssistant() {
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  const getActionLabel = (actionObj) => {
+    if (!actionObj?.action) return 'Unknown action';
+    if (actionObj.action === 'add_sprint') return 'Create a new sprint';
+    if (actionObj.action === 'set_committed_points') {
+      return `Set latest sprint committed points to ${Math.round(Number(actionObj.points) || 0)}`;
+    }
+    if (actionObj.action === 'set_support_impact') {
+      return `Set support impact factor to ${Math.round((Number(actionObj.value) || 0) * 100)}%`;
+    }
+    return actionObj.action;
+  };
+
+  const executeAction = (actionObj) => {
+    if (!actionObj || typeof actionObj !== 'object') return { ok: false, message: 'Invalid action payload.' };
+    if (actionObj.action === 'add_sprint') {
+      dispatch({ type: 'ADD_SPRINT' });
+      return { ok: true, message: 'Created a new sprint.' };
+    }
+    if (actionObj.action === 'set_committed_points') {
+      const points = Number(actionObj.points);
+      const last = state.sprints[state.sprints.length - 1];
+      if (!last || !Number.isFinite(points) || points < 0) {
+        return { ok: false, message: 'Invalid sprint or points value.' };
+      }
+      dispatch({ type: 'UPDATE_SPRINT', id: last.id, data: { committedPoints: Math.round(points) } });
+      return { ok: true, message: `Set committed points to ${Math.round(points)} on ${last.name}.` };
+    }
+    if (actionObj.action === 'set_support_impact') {
+      const value = Number(actionObj.value);
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        return { ok: false, message: 'Support impact must be between 0 and 1.' };
+      }
+      dispatch({ type: 'SET_SUPPORT_IMPACT', value });
+      return { ok: true, message: `Set support impact factor to ${Math.round(value * 100)}%.` };
+    }
+    return { ok: false, message: `Unsupported action: ${actionObj.action}` };
+  };
+
+  const applyAction = (actionObj) => {
+    setPendingAction(actionObj);
+  };
+
+  const confirmApplyAction = () => {
+    if (!pendingAction) return;
+    const result = executeAction(pendingAction);
+    dispatch({
+      type: 'ADD_AI_ACTION_AUDIT',
+      entry: {
+        source: 'ai',
+        action: pendingAction.action,
+        details: result.message,
+        status: result.ok ? 'applied' : 'rejected',
+      },
+    });
+    setError(result.ok ? `Applied AI action: ${result.message}` : `Could not apply AI action: ${result.message}`);
+    setPendingAction(null);
+  };
+
+  const exportAuditCsv = () => {
+    const rows = [['time', 'action', 'status', 'source', 'details']];
+    aiActionAudit.forEach(entry => {
+      rows.push([
+        entry.at || '',
+        entry.action || '',
+        entry.status || '',
+        entry.source || '',
+        String(entry.details || '').replace(/\n/g, ' '),
+      ]);
+    });
+    const csv = rows
+      .map(r => r.map(v => {
+        const s = String(v);
+        if (s.includes(',') || s.includes('"')) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      }).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ai-action-audit.csv';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -407,7 +513,7 @@ export default function AIAssistant() {
           <div className="ai-empty">
             <div className="ai-empty-icon">🤖</div>
             <div className="ai-empty-title">Your AI Agile Coach is ready</div>
-            <div className="ai-empty-sub">Select a provider above, then ask anything about your team's velocity, forecasts, or sprint planning.</div>
+            <div className="ai-empty-sub">Select a provider above, then ask anything about your team&apos;s velocity, forecasts, or sprint planning.</div>
           </div>
         )}
 
@@ -416,7 +522,9 @@ export default function AIAssistant() {
             <div className="ai-bubble-avatar">{msg.role === 'user' ? '🧑' : '🤖'}</div>
             <div className="ai-bubble-content">
               {(() => {
-                const lines = msg.content.split('\n');
+                const lines = msg.content
+                  .split('\n')
+                  .filter(line => !line.trim().startsWith('ACTION_JSON:'));
                 return lines.map((line, j) => (
                   <span key={j}>{line}{j < lines.length - 1 && <br />}</span>
                 ));
@@ -437,6 +545,26 @@ export default function AIAssistant() {
       </div>
 
       {/* Input */}
+      {latestAssistantAction && (
+        <div className="ai-input-row" style={{ marginBottom: 8 }}>
+          <button className="btn btn-secondary" onClick={() => applyAction(latestAssistantAction)}>
+            Apply AI Recommendation
+          </button>
+          <span className="fr-sub">Detected action: {latestAssistantAction.action}</span>
+        </div>
+      )}
+
+      {pendingAction && (
+        <div className="card ai-provider-card" style={{ marginBottom: 10 }}>
+          <div className="ai-provider-title">Confirm AI Action</div>
+          <p className="settings-data-note">{getActionLabel(pendingAction)}</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" onClick={confirmApplyAction}>Confirm</button>
+            <button className="btn btn-secondary" onClick={() => setPendingAction(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       <div className="ai-input-row">
         <textarea
           className="ai-input"
@@ -460,6 +588,40 @@ export default function AIAssistant() {
           </button>
         )}
       </div>
+
+      {aiActionAudit.length > 0 && (
+        <div className="card chart-section" style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <h2 className="chart-title">AI Action Audit Trail</h2>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary" onClick={exportAuditCsv}>Export CSV</button>
+              <button className="btn btn-danger" onClick={() => dispatch({ type: 'CLEAR_AI_ACTION_AUDIT' })}>Clear Audit</button>
+            </div>
+          </div>
+          <div className="scenario-table-wrap">
+            <table className="vel-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Action</th>
+                  <th>Status</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...aiActionAudit].slice(-15).reverse().map(entry => (
+                  <tr key={entry.id}>
+                    <td>{entry.at ? new Date(entry.at).toLocaleString() : '—'}</td>
+                    <td>{entry.action || '—'}</td>
+                    <td>{entry.status || 'logged'}</td>
+                    <td>{entry.details || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

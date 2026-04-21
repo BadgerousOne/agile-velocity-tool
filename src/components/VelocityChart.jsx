@@ -52,6 +52,21 @@ export default function VelocityChart() {
     completed: s.completedPoints,
   })), [sprints]);
 
+  // Burnup data: cumulative completed vs cumulative scope (committed + scope changes)
+  const burnupData = useMemo(() => {
+    let cumulativeCompleted = 0;
+    let cumulativeScope = 0;
+    return sprints.map(s => {
+      cumulativeCompleted += s.completedPoints || 0;
+      cumulativeScope += (s.committedPoints || 0) + (s.scopeAddedPoints || 0) - (s.scopeRemovedPoints || 0);
+      return {
+        name: s.name,
+        cumulativeCompleted,
+        cumulativeScope,
+      };
+    });
+  }, [sprints]);
+
   // Capacity impact data
   const capacityData = useMemo(() => sprints.map(s => {
     const t = sprintCapacityTotals(s);
@@ -184,6 +199,47 @@ export default function VelocityChart() {
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Burnup Chart */}
+      {sprints.length > 0 && (
+        <div className="card chart-section">
+          <h2 className="chart-title">Burnup — Cumulative Completed vs Scope</h2>
+          <p className="chart-sub">
+            Completed line should converge with Scope as the project progresses. A widening gap signals scope creep.
+          </p>
+          <ResponsiveContainer width="100%" height={240}>
+            <ComposedChart data={burnupData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="name" tick={tickStyle} />
+              <YAxis tick={tickStyle} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={labelStyle}
+                itemStyle={itemStyle}
+                formatter={(val, name) => [`${val} pts`, name]}
+              />
+              <Legend wrapperStyle={legendStyle} />
+              <Line
+                dataKey="cumulativeScope"
+                name="Cumulative Scope"
+                type="monotone"
+                stroke="var(--warning)"
+                strokeWidth={2}
+                strokeDasharray="5 3"
+                dot={{ r: 3, fill: 'var(--warning)' }}
+              />
+              <Line
+                dataKey="cumulativeCompleted"
+                name="Cumulative Completed"
+                type="monotone"
+                stroke="var(--success)"
+                strokeWidth={2}
+                dot={{ r: 4, fill: 'var(--success)' }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       {/* Capacity Impact */}
       <div className="card chart-section">
