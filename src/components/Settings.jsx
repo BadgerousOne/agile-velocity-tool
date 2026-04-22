@@ -87,6 +87,23 @@ export default function Settings() {
   const [renamingWsId,     setRenamingWsId]     = useState(null);
   const [renameWsValue,    setRenameWsValue]    = useState('');
 
+  const IMPORT_TS_KEY = `agile_velocity_last_import_${activeWorkspaceId}`;
+  const [lastImportedAt, setLastImportedAt] = useState(() => localStorage.getItem(IMPORT_TS_KEY) || null);
+
+  const recordImport = () => {
+    const ts = new Date().toISOString();
+    localStorage.setItem(IMPORT_TS_KEY, ts);
+    setLastImportedAt(ts);
+  };
+
+  const formatImportTs = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      month: 'long', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+  };
+
   const handleExport = () => {
     const payload = buildExportPayload(state);
     const json = JSON.stringify(payload, null, 2);
@@ -112,6 +129,7 @@ export default function Settings() {
         dispatch({ type: 'LOAD_STATE', payload: normalized });
         dispatch({ type: 'RECALC_ALL_SPRINT_HOLIDAYS' });
         dispatch({ type: 'SET_TAB', tab: 'settings' });
+        recordImport();
         alert('Data imported successfully!');
       } catch (err) {
         alert(`Failed to import: ${err?.message || 'invalid JSON file.'}`);
@@ -239,6 +257,7 @@ export default function Settings() {
           }));
         }
         dispatch({ type: 'LOAD_STATE', payload: { ...state, sprints: nextSprints } });
+        recordImport();
         alert(`Imported ${nextSprints.length} sprints from CSV${isWorkItemExport ? ' (work-item mode)' : ''}.`);
       } catch (err) {
         alert(`CSV import failed: ${err?.message || 'invalid file.'}`);
@@ -757,6 +776,11 @@ export default function Settings() {
           </label>
           <button className="btn btn-danger" onClick={handleReset}>🗑 Reset All Data</button>
         </div>
+        {lastImportedAt && (
+          <p className="settings-data-note" style={{ marginTop: 12 }}>
+            Last imported: <strong>{formatImportTs(lastImportedAt)}</strong>
+          </p>
+        )}
       </div>
 
       {/* ── About ── */}
