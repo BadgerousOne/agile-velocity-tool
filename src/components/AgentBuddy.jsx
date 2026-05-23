@@ -142,10 +142,21 @@ function AgentBuddyPanel() {
     setMessages([]);
   }, [activeWorkspaceId]);
 
-  // L1: cancel in-flight probe if panel closes before it completes
+  // Ollama status + health signals on panel open
   useEffect(() => {
     if (!open) return;
+
+    setAlerts(buildHealthSignals(state.sprints, state.sprintDurationDays, state.supportImpactFactor));
     setOllamaOnline(null);
+
+    // T1.5: Electron path — main process pushes status; no HTTP probe needed
+    if (typeof window.ollamaApi !== 'undefined') {
+      const handler = ({ state: s }) => setOllamaOnline(s === 'ready');
+      window.ollamaApi.onStatus(handler);
+      return () => window.ollamaApi.offStatus(handler);
+    }
+
+    // Browser / standalone path — HTTP probe (unchanged)
     const ac = new AbortController();
     probeOllama(ollamaUrl, ac.signal).then(online => {
       if (ac.signal.aborted) return;
@@ -157,12 +168,6 @@ function AgentBuddyPanel() {
         });
       }
     });
-    const signals = buildHealthSignals(
-      state.sprints,
-      state.sprintDurationDays,
-      state.supportImpactFactor,
-    );
-    setAlerts(signals);
     return () => ac.abort();
   }, [open, ollamaUrl, model, toolsEnabled, state.sprints, state.sprintDurationDays, state.supportImpactFactor]);
 

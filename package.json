@@ -3,10 +3,20 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "out/main/index.js",
+  "electron-builder": {
+    "appId": "com.agile-velocity-tool",
+    "productName": "Agile Velocity Tool",
+    "mac": {
+      "minimumSystemVersion": "13.0"
+    }
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "electron-vite dev",
+    "dev:browser": "vite",
+    "build": "electron-vite build",
     "build:standalone": "vite build --config vite.standalone.js",
+    "build:dmg": "electron-vite build && electron-builder",
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest",
@@ -20,13 +30,16 @@
     "uuid": "^10.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.22.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
-    "@eslint/js": "^9.22.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.3.0",
     "eslint": "^9.22.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
