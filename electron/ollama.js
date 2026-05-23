@@ -121,7 +121,24 @@ export function pullModel(modelName) {
 
 let ollamaProcess = null;
 let ownedByApp    = false;
-let restarting    = false;
+let watchdogTimer = null;
+
+function stopWatchdog() {
+  if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+}
+
+function startWatchdog() {
+  stopWatchdog();
+  watchdogTimer = setInterval(async () => {
+    // Skip if already in a transient state
+    if (['starting', 'downloading'].includes(currentStatus.state)) return;
+    const alive = await probePort();
+    if (!alive) {
+      console.warn('[ollama] watchdog: port not responding, restarting…');
+      await start();
+    }
+  }, 30_000);
+}
 
 async function spawnServe() {
   const bin = resolveBinary();
@@ -135,15 +152,13 @@ async function spawnServe() {
     emit({ state: 'error', message: `Could not start Ollama: ${err.message}`, retryable: false });
   });
 
-  ollamaProcess.on('exit', code => {
-    if (ownedByApp && !restarting && code !== 0 && code !== null) {
-      console.warn(`[ollama] process exited (code ${code}), restarting…`);
-      restarting = true;
-      emit({ state: 'starting' });
-      setTimeout(async () => {
-        restarting = false;
-        await start();
-      }, 2000);
+  ollamaProcess.on('exit', (code, signal) => {
+    if (ownedByApp && signal !== 'SIGTERM') {
+      console.warn(`[ollama] process exited unexpectedly (code ${code})`);
+      ollamaProcess = null;
+      ownedByApp    = false;
+      emit({ state: 'error', message: 'Ollama stopped unexpectedly.', retryable: true });
+      // Watchdog will pick this up and restart within 30 s
     }
   });
 
@@ -169,13 +184,16 @@ export async function start() {
     console.log('[ollama] adopted existing instance on :11434');
     ownedByApp = false;
     emit({ state: 'ready' });
+    startWatchdog();
     return;
   }
 
   await spawnServe();
+  startWatchdog();
 }
 
 export function stop() {
+  stopWatchdog();
   if (ownedByApp && ollamaProcess) {
     console.log('[ollama] stopping managed process');
     ownedByApp    = false;

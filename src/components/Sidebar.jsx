@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import { useWorkspaces } from '../context/WorkspaceContext';
 import './Sidebar.css';
@@ -17,6 +17,27 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const { state, dispatch } = useVelocity();
+
+  const [buddyEnabled, setBuddyEnabled] = useState(
+    () => localStorage.getItem('buddy_enabled') === 'true'
+  );
+
+  useEffect(() => {
+    const handler = () => setBuddyEnabled(localStorage.getItem('buddy_enabled') === 'true');
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, []);
+
+  // If the AI Assistant tab is active when the buddy is enabled, redirect away.
+  useEffect(() => {
+    if (buddyEnabled && state.activeTab === 'ai') {
+      dispatch({ type: 'SET_TAB', tab: 'dashboard' });
+    }
+  }, [buddyEnabled, state.activeTab, dispatch]);
+
+  const visibleNavItems = buddyEnabled
+    ? NAV_ITEMS.filter(item => item.id !== 'ai')
+    : NAV_ITEMS;
   const { workspaces, activeWorkspace, activeWorkspaceId, switchWorkspace, renameWorkspace, deleteWorkspace } = useWorkspaces();
 
   const [renamingId, setRenamingId] = useState(null);
@@ -66,7 +87,7 @@ export default function Sidebar() {
 
       {/* ── Nav ── */}
       <nav className="sidebar-nav">
-        {NAV_ITEMS.map(item => (
+        {visibleNavItems.map(item => (
           <button
             key={item.id}
             className={`sidebar-nav-item ${state.activeTab === item.id ? 'active' : ''}`}
