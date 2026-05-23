@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "out/main/index.cjs",
-  "electron-builder": {
+  "build": {
     "appId": "com.agile-velocity-tool",
     "productName": "Agile Velocity Tool",
     "directories": {
@@ -12,7 +12,13 @@
     },
     "files": [
       "out/**/*",
+      "electron/splash.html",
+      "vendor/ollama",
       "package.json"
+    ],
+    "asarUnpack": [
+      "electron/splash.html",
+      "vendor/ollama"
     ],
     "mac": {
       "minimumSystemVersion": "13.0",
@@ -24,17 +30,15 @@
     },
     "dmg": {
       "title": "${productName} ${version}"
-    },
-    "extraResources": [
-      { "from": "electron/splash.html", "to": "splash.html" }
-    ]
+    }
   },
   "scripts": {
     "dev": "electron-vite dev",
     "dev:browser": "vite",
     "build": "electron-vite build",
     "build:standalone": "vite build --config vite.standalone.js",
-    "build:dmg": "electron-vite build && electron-builder --universal",
+    "vendor:setup": "node scripts/setup-vendor.js",
+    "build:dmg": "node scripts/setup-vendor.js && electron-vite build && electron-builder --universal",
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest",

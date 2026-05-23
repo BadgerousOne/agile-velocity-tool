@@ -6,7 +6,6 @@ import {
   stop as stopOllama,
   onStatus,
   getCurrentStatus,
-  downloadBinary,
   pullModel,
   DEFAULT_MODEL,
 } from './ollama.js';
@@ -15,7 +14,7 @@ import { check as firstLaunchCheck } from './firstLaunch.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
-// ── Splash window (first-launch only) ────────────────────────────────────────
+// ── Splash window (first-launch model download only) ──────────────────────────
 
 function createSplash() {
   const win = new BrowserWindow({
@@ -32,10 +31,9 @@ function createSplash() {
     },
   });
 
-  // In dev, load from source; in production, splash.html is an extraResource
   const splashPath = isDev
     ? path.join(process.cwd(), 'electron', 'splash.html')
-    : path.join(process.resourcesPath, 'splash.html');
+    : path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'splash.html');
 
   win.loadFile(splashPath);
   win.once('ready-to-show', () => win.show());
@@ -56,13 +54,11 @@ function createWindow() {
     },
   });
 
-  // Push Ollama status to renderer on every state transition
   const unsubscribe = onStatus(status => {
     if (!win.isDestroyed()) win.webContents.send('ollama:status', status);
   });
   win.once('closed', unsubscribe);
 
-  // Push current status once the renderer finishes loading
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('ollama:status', getCurrentStatus());
   });
@@ -80,44 +76,16 @@ function createWindow() {
   return win;
 }
 
-// ── First-launch setup ────────────────────────────────────────────────────────
-
-async function setup() {
-  const { needsBinary, needsModel } = await firstLaunchCheck(DEFAULT_MODEL);
-  if (!needsBinary && !needsModel) return;
-
-  const splash    = createSplash();
-  const unsubSplash = onStatus(status => {
-    if (!splash.isDestroyed()) splash.webContents.send('ollama:status', status);
-  });
-
-  try {
-    if (needsBinary) await downloadBinary();
-    if (needsModel)  await pullModel(DEFAULT_MODEL);
-  } catch (err) {
-    console.error('[main] First-launch setup error:', err);
-    // Give the user time to read the error message before the splash closes
-    await new Promise(r => setTimeout(r, 4000));
-  } finally {
-    unsubSplash();
-    if (!splash.isDestroyed()) splash.close();
-  }
-}
-
 // ── CSP hardening ─────────────────────────────────────────────────────────────
 
 function installCSP() {
-  // Skip in dev — the Vite HMR websocket and localhost URLs would be blocked otherwise.
   if (isDev) return;
 
   const CSP = [
     "default-src 'self'",
     "script-src 'self'",
-    // React uses inline style attributes; recharts injects SVG styles
     "style-src 'self' 'unsafe-inline'",
-    // data: for inline SVG/images; blob: for chart canvas exports
     "img-src 'self' data: blob:",
-    // Local Ollama + the four supported AI provider APIs
     "connect-src 'self' http://127.0.0.1:11434 https://api.openai.com https://api.anthropic.com https://generativelanguage.googleapis.com",
     "font-src 'self' data:",
   ].join('; ');
@@ -132,6 +100,28 @@ function installCSP() {
   });
 }
 
+// ── First-launch setup (model download only) ──────────────────────────────────
+
+async function setup() {
+  const { needsModel } = await firstLaunchCheck(DEFAULT_MODEL);
+  if (!needsModel) return;
+
+  const splash     = createSplash();
+  const unsubSplash = onStatus(status => {
+    if (!splash.isDestroyed()) splash.webContents.send('ollama:status', status);
+  });
+
+  try {
+    await pullModel(DEFAULT_MODEL);
+  } catch (err) {
+    console.error('[main] Model pull error:', err);
+    await new Promise(r => setTimeout(r, 4000));
+  } finally {
+    unsubSplash();
+    if (!splash.isDestroyed()) splash.close();
+  }
+}
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
@@ -141,7 +131,6 @@ app.whenReady().then(async () => {
   createWindow();
   startOllama().catch(err => console.error('[main] Ollama start error:', err));
 
-  // macOS: re-open window when dock icon is clicked and no windows are open
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
