@@ -11,6 +11,7 @@ import React from 'react';
 import { VelocityProvider, useVelocity } from './context/VelocityContext';
 import { WorkspaceProvider, useWorkspaces } from './context/WorkspaceContext';
 import Sidebar from './components/Sidebar';
+import AgentBuddy from './components/AgentBuddy';
 import Dashboard from './components/Dashboard';
 import TeamMembers from './components/TeamMembers';
 import Sprints from './components/Sprints';
@@ -48,6 +49,7 @@ function AppContent() {
           {renderPage()}
         </div>
       </main>
+      <AgentBuddy />
     </div>
   );
 }

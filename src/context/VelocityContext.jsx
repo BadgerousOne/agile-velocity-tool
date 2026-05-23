@@ -166,6 +166,69 @@ function normalizeReleaseMilestones(milestones) {
 }
 
 /**
+ * Compute the default field values for a new sprint without creating it.
+ * Extracted so AgentBuddy can render a preview before the user confirms.
+ * Returns everything ADD_SPRINT would set, minus the UUID (added at dispatch time).
+ *
+ * @param {AppState} state
+ * @returns {object} New sprint defaults
+ */
+export function computeNewSprintDefaults(state) {
+  const last     = state.sprints[state.sprints.length - 1];
+  const num      = state.sprints.length + 1;
+  const holidays = state.holidays || [];
+  const startDate = last ? last.endDate : '';
+  const endDate   = calcSprintEndDate(startDate, state.sprintDurationDays);
+
+  const prevCapacity  = last?.memberCapacity || [];
+  const prevMemberIds = new Set(prevCapacity.map(r => r.memberId));
+  const prevAllocMap  = {};
+  prevCapacity.forEach(r => { prevAllocMap[r.memberId] = r.allocation ?? 100; });
+
+  const completedSprints = state.sprints.filter(s => s.completedPoints > 0);
+  let suggestedCommitted = 0;
+  if (completedSprints.length > 0) {
+    let weightSum = 0, valueSum = 0;
+    completedSprints.forEach((s, i) => {
+      const w = i + 1;
+      weightSum += w;
+      valueSum  += (s.completedPoints || 0) * w;
+    });
+    suggestedCommitted = Math.round(valueSum / weightSum);
+  }
+
+  const carried = prevCapacity.map(r => {
+    const member = state.teamMembers.find(m => m.id === r.memberId);
+    const { count, names } = countHolidaysInSprint(member?.regionId, startDate, endDate, holidays);
+    return { ...r, ptoDays: count, holidayDays: count, holidayNames: names, supportDays: 0, otherDays: 0, otherLabel: '' };
+  });
+
+  const newMemberRows = state.teamMembers
+    .filter(m => !prevMemberIds.has(m.id))
+    .map(m => {
+      const { count, names } = countHolidaysInSprint(m.regionId, startDate, endDate, holidays);
+      return { memberId: m.id, memberName: m.name, allocation: prevAllocMap[m.id] ?? 100, ptoDays: count, holidayDays: count, holidayNames: names, supportDays: 0, otherDays: 0, otherLabel: '' };
+    });
+
+  const memberCapacity = prevCapacity.length > 0
+    ? [...carried, ...newMemberRows]
+    : seedMemberCapacity(state.teamMembers, startDate, endDate, holidays);
+
+  return {
+    name: `Sprint ${num}`,
+    startDate,
+    endDate,
+    committedPoints:          suggestedCommitted,
+    suggestedCommittedPoints: suggestedCommitted,
+    scopeAddedPoints:  0,
+    scopeRemovedPoints: 0,
+    completedPoints:   0,
+    notes:             '',
+    memberCapacity,
+  };
+}
+
+/**
  * Sum PTO, support, and other days across all member rows for a sprint.
  * Exported so components and velocityCalc.js can use it without importing the full reducer.
  *
@@ -678,84 +741,15 @@ export function reducer(state, action) {
 
     // ── Sprints ───────────────────────────────────────────────────────────
     case 'ADD_SPRINT': {
-      const last        = state.sprints[state.sprints.length - 1];
-      const num         = state.sprints.length + 1;
-      const holidays    = state.holidays || [];
-      const startDate   = last ? last.endDate : '';
-      const endDate     = calcSprintEndDate(startDate, state.sprintDurationDays);
-
-      const prevCapacity  = last?.memberCapacity || [];
-      const prevMemberIds = new Set(prevCapacity.map(r => r.memberId));
-
-      // Build a quick lookup: memberId → allocation from the previous sprint
-      const prevAllocMap = {};
-      prevCapacity.forEach(r => { prevAllocMap[r.memberId] = r.allocation ?? 100; });
-
-      // ── Compute suggested committed points from recency-weighted velocity ──
-      // Uses the same formula as calcWeightedVelocity: sprint at index i gets weight (i+1)
-      const completedSprints = state.sprints.filter(s => s.completedPoints > 0);
-      let suggestedCommitted = 0;
-      if (completedSprints.length > 0) {
-        let weightSum = 0, valueSum = 0;
-        completedSprints.forEach((s, i) => {
-          const w = i + 1;
-          weightSum += w;
-          valueSum  += (s.completedPoints || 0) * w;
-        });
-        suggestedCommitted = Math.round(valueSum / weightSum);
-      }
-
-      // Carry forward allocation from last sprint, reset day-off fields,
-      // then re-calculate holiday PTO for the new sprint's date range
-      const carried = prevCapacity.map(r => {
-        const member = state.teamMembers.find(m => m.id === r.memberId);
-        const { count, names } = countHolidaysInSprint(member?.regionId, startDate, endDate, holidays);
-        return {
-          ...r,
-          ptoDays:      count,
-          holidayDays:  count,
-          holidayNames: names,
-          supportDays:  0,
-          otherDays:    0,
-          otherLabel:   '',
-        };
-      });
-
-      const newMemberRows = state.teamMembers
-        .filter(m => !prevMemberIds.has(m.id))
-        .map(m => {
-          const { count, names } = countHolidaysInSprint(m.regionId, startDate, endDate, holidays);
-          return {
-            memberId:     m.id,
-            memberName:   m.name,
-            allocation:   prevAllocMap[m.id] ?? 100,
-            ptoDays:      count,
-            holidayDays:  count,
-            holidayNames: names,
-            supportDays:  0,
-            otherDays:    0,
-            otherLabel:   '',
-          };
-        });
-
-      const memberCapacity = prevCapacity.length > 0
-        ? [...carried, ...newMemberRows]
-        : seedMemberCapacity(state.teamMembers, startDate, endDate, holidays);
-
+      const defaults = computeNewSprintDefaults(state);
+      // Destructure to prevent callers from overriding the generated UUID.
+      const { id: _dropId, ...safeOverrides } = action.overrides || {};
       return {
         ...state,
         sprints: [...state.sprints, {
           id: uuidv4(),
-          name: `Sprint ${num}`,
-          startDate,
-          endDate,
-          committedPoints:          suggestedCommitted,
-          suggestedCommittedPoints: suggestedCommitted, // snapshot for override indicator
-          scopeAddedPoints: 0,
-          scopeRemovedPoints: 0,
-          completedPoints: 0,
-          notes: '',
-          memberCapacity,
+          ...defaults,
+          ...safeOverrides,
         }],
       };
     }
