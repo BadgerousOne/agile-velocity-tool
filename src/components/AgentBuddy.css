@@ -113,6 +113,50 @@
 }
 .buddy-setup-card__link:hover { text-decoration: underline; }
 
+/* ── Health alert cards ─────────────────────────────────────────────────── */
+
+.buddy-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 12px;
+  border-left: 3px solid;
+}
+
+.buddy-alert--high   { background: rgba(239, 68, 68, 0.08);  border-color: var(--danger);  }
+.buddy-alert--medium { background: rgba(245, 158, 11, 0.08); border-color: var(--warning); }
+.buddy-alert--low    { background: rgba(99, 102, 241, 0.08); border-color: var(--primary); }
+
+.buddy-alert__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.buddy-alert__title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.buddy-alert__detail {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.buddy-alert__dismiss {
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.buddy-alert__dismiss:hover { color: var(--text-primary); }
+
 /* ── Chat bubbles ───────────────────────────────────────────────────────── */
 
 .buddy-bubble {

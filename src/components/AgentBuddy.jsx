@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import { buildBuddyContext } from '../utils/buddyContext';
+import { buildHealthSignals } from '../utils/velocityCalc';
 import './AgentBuddy.css';
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
@@ -66,6 +67,8 @@ function AgentBuddyPanel() {
   const [ollamaUrl] = useState(() => localStorage.getItem('buddy_ollama_url') || DEFAULT_OLLAMA_URL);
   const [model]     = useState(() => localStorage.getItem('buddy_model')      || DEFAULT_MODEL);
   const [ollamaOnline, setOllamaOnline] = useState(null); // null=unknown, true, false
+  const [alerts, setAlerts]             = useState([]);   // health signal cards
+  const [dismissedAlerts, setDismissedAlerts] = useState(() => new Set());
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
 
@@ -77,8 +80,14 @@ function AgentBuddyPanel() {
     probeOllama(ollamaUrl, ac.signal).then(online => {
       if (!ac.signal.aborted) setOllamaOnline(online);
     });
+    const signals = buildHealthSignals(
+      state.sprints,
+      state.sprintDurationDays,
+      state.supportImpactFactor,
+    );
+    setAlerts(signals);
     return () => ac.abort();
-  }, [open, ollamaUrl]);
+  }, [open, ollamaUrl, state.sprints, state.sprintDurationDays, state.supportImpactFactor]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -89,6 +98,10 @@ function AgentBuddyPanel() {
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
+
+  const dismissAlert = useCallback((title) => {
+    setDismissedAlerts(prev => new Set([...prev, title]));
+  }, []);
 
   // N3: useCallback prevents unnecessary re-renders of children that receive this as a prop
   const handleSend = useCallback(async () => {
@@ -169,6 +182,13 @@ function AgentBuddyPanel() {
             {/* L2: show setup card whenever offline, not just on first open */}
             {ollamaOnline === false && <SetupCard />}
 
+            {alerts
+              .filter(a => !dismissedAlerts.has(a.title))
+              .map(a => (
+                <HealthAlertCard key={a.title} alert={a} onDismiss={dismissAlert} />
+              ))
+            }
+
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -209,6 +229,24 @@ function AgentBuddyPanel() {
         </div>
       )}
     </>
+  );
+}
+
+function HealthAlertCard({ alert, onDismiss }) {
+  return (
+    <div className={`buddy-alert buddy-alert--${alert.severity}`} role="alert">
+      <div className="buddy-alert__body">
+        <span className="buddy-alert__title">{alert.title}</span>
+        <span className="buddy-alert__detail">{alert.detail}</span>
+      </div>
+      <button
+        className="buddy-alert__dismiss"
+        onClick={() => onDismiss(alert.title)}
+        aria-label={`Dismiss alert: ${alert.title}`}
+      >
+        ✕
+      </button>
+    </div>
   );
 }
 
