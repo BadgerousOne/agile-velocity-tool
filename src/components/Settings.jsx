@@ -90,6 +90,30 @@ export default function Settings() {
   const IMPORT_TS_KEY = `agile_velocity_last_import_${activeWorkspaceId}`;
   const [lastImportedAt, setLastImportedAt] = useState(() => localStorage.getItem(IMPORT_TS_KEY) || null);
 
+  // T4.1: Agent Buddy config — stored outside workspace state (cross-workspace)
+  const [buddyEnabled,   setBuddyEnabled]   = useState(() => localStorage.getItem('buddy_enabled')    === 'true');
+  const [buddyOllamaUrl, setBuddyOllamaUrl] = useState(() => localStorage.getItem('buddy_ollama_url') || 'http://localhost:11434');
+  const [buddyModel,     setBuddyModel]     = useState(() => localStorage.getItem('buddy_model')      || 'llama3.2');
+
+  function handleBuddyToggle(e) {
+    const val = e.target.checked;
+    setBuddyEnabled(val);
+    localStorage.setItem('buddy_enabled', String(val));
+    window.dispatchEvent(new CustomEvent('buddy-config-changed'));
+  }
+
+  function handleBuddyUrlBlur(e) {
+    const val = e.target.value.trim() || 'http://localhost:11434';
+    setBuddyOllamaUrl(val);
+    localStorage.setItem('buddy_ollama_url', val);
+  }
+
+  function handleBuddyModelBlur(e) {
+    const val = e.target.value.trim() || 'llama3.2';
+    setBuddyModel(val);
+    localStorage.setItem('buddy_model', val);
+  }
+
   const recordImport = () => {
     const ts = new Date().toISOString();
     localStorage.setItem(IMPORT_TS_KEY, ts);
@@ -781,6 +805,62 @@ export default function Settings() {
             Last imported: <strong>{formatImportTs(lastImportedAt)}</strong>
           </p>
         )}
+      </div>
+
+      {/* ── Agent Buddy ── */}
+      <div className="card settings-section">
+        <h2 className="settings-section-title">🤖 Agent Buddy</h2>
+
+        <div className="settings-field">
+          <div className="settings-field-info">
+            <label htmlFor="buddy-toggle">Enable Agent Buddy</label>
+            <p>Shows a floating chat button on every page. Powered by a local Ollama model — no API key required, no data leaves your machine.</p>
+          </div>
+          <div className="settings-field-control">
+            <input
+              id="buddy-toggle"
+              type="checkbox"
+              checked={buddyEnabled}
+              onChange={handleBuddyToggle}
+            />
+          </div>
+        </div>
+
+        <div className="settings-field">
+          <div className="settings-field-info">
+            <label htmlFor="buddy-url">Ollama URL</label>
+            <p>Base URL for your local Ollama server. Change this if you're running Ollama on a non-default port or remote host.</p>
+          </div>
+          <div className="settings-field-control">
+            <input
+              id="buddy-url"
+              className="settings-select"
+              type="text"
+              value={buddyOllamaUrl}
+              onChange={e => setBuddyOllamaUrl(e.target.value)}
+              onBlur={handleBuddyUrlBlur}
+              placeholder="http://localhost:11434"
+            />
+          </div>
+        </div>
+
+        <div className="settings-field">
+          <div className="settings-field-info">
+            <label htmlFor="buddy-model">Model</label>
+            <p>The Ollama model to use. Recommended: <strong>llama3.2</strong> or <strong>mistral</strong>. Run <code style={{ fontFamily: 'monospace', fontSize: 12 }}>ollama pull llama3.2</code> to download.</p>
+          </div>
+          <div className="settings-field-control">
+            <input
+              id="buddy-model"
+              className="settings-select"
+              type="text"
+              value={buddyModel}
+              onChange={e => setBuddyModel(e.target.value)}
+              onBlur={handleBuddyModelBlur}
+              placeholder="llama3.2"
+            />
+          </div>
+        </div>
       </div>
 
       {/* ── About ── */}

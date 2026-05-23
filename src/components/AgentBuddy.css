@@ -47,6 +47,22 @@
   border-bottom: 1px solid var(--border);
 }
 
+.buddy-panel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* T4.2: expand/collapse toggle */
+.buddy-panel-toggle {
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.buddy-panel-toggle:hover { color: var(--text-primary); }
+
 .buddy-panel-title {
   font-weight: 600;
   font-size: 14px;

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useVelocity, computeNewSprintDefaults } from '../context/VelocityContext';
+import { useWorkspaces } from '../context/WorkspaceContext';
 import { buildBuddyContext } from '../utils/buddyContext';
 import { buildHealthSignals } from '../utils/velocityCalc';
 import { parseActionEnvelope, stripActionFence, ACTION_DEFINITIONS } from '../utils/buddyActions';
@@ -102,7 +103,15 @@ function extractAction(content, toolCall) {
 // ── Feature-flag wrapper ──────────────────────────────────────────────────────
 
 export default function AgentBuddy() {
-  const enabled = localStorage.getItem('buddy_enabled') === 'true';
+  // T4.1: react to Settings toggle without page reload via custom event
+  const [enabled, setEnabled] = useState(() => localStorage.getItem('buddy_enabled') === 'true');
+
+  useEffect(() => {
+    const handler = () => setEnabled(localStorage.getItem('buddy_enabled') === 'true');
+    window.addEventListener('buddy-config-changed', handler);
+    return () => window.removeEventListener('buddy-config-changed', handler);
+  }, []);
+
   if (!enabled) return null;
   return <AgentBuddyPanel />;
 }
@@ -111,7 +120,10 @@ export default function AgentBuddy() {
 
 function AgentBuddyPanel() {
   const { state, dispatch } = useVelocity();
+  const { activeWorkspaceId } = useWorkspaces();
   const [open, setOpen]         = useState(false);
+  // T4.2: start minimized on mobile so the panel doesn't cover the full viewport on open
+  const [minimized, setMinimized] = useState(() => window.innerWidth < 768);
   const [messages, setMessages] = useState([]); // { id, role, content, error?, action? }
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
@@ -124,6 +136,11 @@ function AgentBuddyPanel() {
   const [dismissedAlerts, setDismissedAlerts] = useState(() => new Set());
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
+
+  // T4.3: reset conversation when the user switches workspaces
+  useEffect(() => {
+    setMessages([]);
+  }, [activeWorkspaceId]);
 
   // L1: cancel in-flight probe if panel closes before it completes
   useEffect(() => {
@@ -283,12 +300,22 @@ function AgentBuddyPanel() {
         >
           <div className="buddy-panel-header">
             <span id="buddy-panel-title" className="buddy-panel-title">Agent Buddy</span>
-            <span className={`buddy-status buddy-status--${statusMod}`} aria-label={`Ollama ${statusLabel}`}>
-              ● {statusLabel}
-            </span>
+            <div className="buddy-panel-header-right">
+              <span className={`buddy-status buddy-status--${statusMod}`} aria-label={`Ollama ${statusLabel}`}>
+                ● {statusLabel}
+              </span>
+              {/* T4.2: expand/collapse toggle for mobile */}
+              <button
+                className="buddy-panel-toggle"
+                onClick={() => setMinimized(m => !m)}
+                aria-label={minimized ? 'Expand panel' : 'Minimize panel'}
+              >
+                {minimized ? '▲' : '▼'}
+              </button>
+            </div>
           </div>
 
-          <div className="buddy-messages">
+          {!minimized && <div className="buddy-messages">
             {/* L2: show setup card whenever offline, not just on first open */}
             {ollamaOnline === false && <SetupCard />}
 
@@ -312,9 +339,9 @@ function AgentBuddyPanel() {
               </div>
             )}
             <div ref={bottomRef} />
-          </div>
+          </div>}
 
-          <div className="buddy-input-row">
+          {!minimized && <div className="buddy-input-row">
             <input
               ref={inputRef}
               className="buddy-input"
@@ -333,7 +360,7 @@ function AgentBuddyPanel() {
             >
               Send
             </button>
-          </div>
+          </div>}
         </div>
       )}
     </>
