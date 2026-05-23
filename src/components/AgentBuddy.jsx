@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useVelocity } from '../context/VelocityContext';
+import { useVelocity, computeNewSprintDefaults } from '../context/VelocityContext';
 import { buildBuddyContext } from '../utils/buddyContext';
 import { buildHealthSignals } from '../utils/velocityCalc';
+import { parseActionEnvelope, stripActionFence, ACTION_DEFINITIONS } from '../utils/buddyActions';
+import SprintPreviewCard from './SprintPreviewCard';
 import './AgentBuddy.css';
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
@@ -15,6 +17,16 @@ function buildSystemPrompt(context) {
   return `You are an Agile sprint assistant embedded in a velocity tracking tool.
 Answer questions accurately based on the team data provided. Be concise and practical.
 If you don't know something or the data doesn't support a conclusion, say so.
+
+You can propose creating a new sprint. When the user asks you to create or suggest a sprint,
+first explain your reasoning in plain text, then include exactly one action block:
+
+\`\`\`action
+{ "type": "CREATE_SPRINT", "name": "Sprint N", "startDate": "YYYY-MM-DD", "suggestedCommittedPoints": N, "notes": "optional rationale" }
+\`\`\`
+
+Only include an action block when the user is explicitly asking for a new sprint.
+Never include more than one action block per response.
 
 === TEAM CONTEXT ===
 ${context}`;
@@ -33,18 +45,58 @@ async function probeOllama(baseUrl, signal) {
   }
 }
 
-async function callOllama(model, messages, baseUrl) {
+// T3.5: probe whether the active model supports native tool calling
+async function probeToolCalling(model, baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: 'ping' }],
+        tools: ACTION_DEFINITIONS,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return false;
+    const json = await res.json();
+    // tool_calls may be an empty array for a non-tool response — that still means tools are accepted
+    return json.message?.tool_calls !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+async function callOllama(model, messages, baseUrl, tools) {
+  const body = { model, messages, stream: false };
+  if (tools) body.tools = tools;
   const res = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages, stream: false }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(90000),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Ollama HTTP ${res.status}${body ? ': ' + body.slice(0, 120) : ''}`);
+    const bodyText = await res.text().catch(() => '');
+    throw new Error(`Ollama HTTP ${res.status}${bodyText ? ': ' + bodyText.slice(0, 120) : ''}`);
   }
-  return (await res.json()).message.content;
+  const json = await res.json();
+  return {
+    content:  json.message.content || '',
+    toolCall: json.message.tool_calls?.[0] ?? null,
+  };
+}
+
+// Extract action data from a tool call (T3.5 path) or envelope (T3.1 path)
+function extractAction(content, toolCall) {
+  if (toolCall?.function?.name && toolCall.function.arguments) {
+    const args = typeof toolCall.function.arguments === 'string'
+      ? JSON.parse(toolCall.function.arguments)
+      : toolCall.function.arguments;
+    return { type: toolCall.function.name, ...args };
+  }
+  return parseActionEnvelope(content);
 }
 
 // ── Feature-flag wrapper ──────────────────────────────────────────────────────
@@ -58,16 +110,17 @@ export default function AgentBuddy() {
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 function AgentBuddyPanel() {
-  const { state } = useVelocity();
+  const { state, dispatch } = useVelocity();
   const [open, setOpen]         = useState(false);
-  const [messages, setMessages] = useState([]); // { id, role, content, error? }
+  const [messages, setMessages] = useState([]); // { id, role, content, error?, action? }
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   // L4: initialize from localStorage so M4 settings hookup is a one-liner
   const [ollamaUrl] = useState(() => localStorage.getItem('buddy_ollama_url') || DEFAULT_OLLAMA_URL);
   const [model]     = useState(() => localStorage.getItem('buddy_model')      || DEFAULT_MODEL);
-  const [ollamaOnline, setOllamaOnline] = useState(null); // null=unknown, true, false
-  const [alerts, setAlerts]             = useState([]);   // health signal cards
+  const [ollamaOnline, setOllamaOnline] = useState(null);   // null=unknown, true, false
+  const [toolsEnabled, setToolsEnabled] = useState(null);   // T3.5: null=unknown, true, false
+  const [alerts, setAlerts]             = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState(() => new Set());
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
@@ -78,7 +131,14 @@ function AgentBuddyPanel() {
     setOllamaOnline(null);
     const ac = new AbortController();
     probeOllama(ollamaUrl, ac.signal).then(online => {
-      if (!ac.signal.aborted) setOllamaOnline(online);
+      if (ac.signal.aborted) return;
+      setOllamaOnline(online);
+      // T3.5: probe tool calling once Ollama is confirmed reachable
+      if (online && toolsEnabled === null) {
+        probeToolCalling(model, ollamaUrl).then(supported => {
+          if (!ac.signal.aborted) setToolsEnabled(supported);
+        });
+      }
     });
     const signals = buildHealthSignals(
       state.sprints,
@@ -87,7 +147,7 @@ function AgentBuddyPanel() {
     );
     setAlerts(signals);
     return () => ac.abort();
-  }, [open, ollamaUrl, state.sprints, state.sprintDurationDays, state.supportImpactFactor]);
+  }, [open, ollamaUrl, model, toolsEnabled, state.sprints, state.sprintDurationDays, state.supportImpactFactor]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -103,12 +163,38 @@ function AgentBuddyPanel() {
     setDismissedAlerts(prev => new Set([...prev, title]));
   }, []);
 
+  // T3.4: confirm sprint creation
+  const handleConfirmSprint = useCallback((msgId, sprintData) => {
+    dispatch({
+      type: 'ADD_SPRINT',
+      overrides: {
+        name:            sprintData.name,
+        startDate:       sprintData.startDate,
+        endDate:         sprintData.endDate,
+        committedPoints: sprintData.committedPoints,
+        notes:           sprintData.notes,
+        memberCapacity:  sprintData.memberCapacity,
+        createdVia:      'buddy',
+      },
+    });
+    const prev = parseInt(sessionStorage.getItem('buddy_sprints_created') || '0', 10);
+    sessionStorage.setItem('buddy_sprints_created', String(prev + 1));
+    setMessages(msgs => msgs.map(m =>
+      m.id === msgId ? { ...m, action: { ...m.action, status: 'confirmed' } } : m
+    ));
+  }, [dispatch]);
+
+  const handleCancelSprint = useCallback((msgId) => {
+    setMessages(msgs => msgs.map(m =>
+      m.id === msgId ? { ...m, action: { ...m.action, status: 'cancelled' } } : m
+    ));
+  }, []);
+
   // N3: useCallback prevents unnecessary re-renders of children that receive this as a prop
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || loading || ollamaOnline === false) return;
 
-    // M3: stable id on each message — safe when message types change in future milestones
     const userMsg  = mkMsg('user', text);
     const nextMsgs = [...messages, userMsg];
     setMessages(nextMsgs);
@@ -119,24 +205,48 @@ function AgentBuddyPanel() {
       const context   = buildBuddyContext(state);
       const systemMsg = { role: 'system', content: buildSystemPrompt(context) };
       // Keep last MAX_HISTORY_TURNS turns (each turn = user + assistant = 2 messages)
+      // History serializes only role + content for plain messages; action cards become prose
       const history = nextMsgs.slice(-(MAX_HISTORY_TURNS * 2)).map(({ role, content }) => ({ role, content }));
-      const payload = [systemMsg, ...history];
+      const payload  = [systemMsg, ...history];
 
-      let reply;
+      // T3.5: include tools when model has confirmed support
+      const tools = toolsEnabled === true ? ACTION_DEFINITIONS : undefined;
+
+      let result;
       try {
-        reply = await callOllama(model, payload, ollamaUrl);
+        result = await callOllama(model, payload, ollamaUrl, tools);
       } catch (err) {
-        // M2: only retry for context-length overflow, not all 400s
         if (err.message.toLowerCase().includes('context')) {
           const shortCtx = buildBuddyContext(state, { maxSprints: 5 });
           const shortSys = { role: 'system', content: buildSystemPrompt(shortCtx) };
-          reply = await callOllama(model, [shortSys, ...history], ollamaUrl);
+          result = await callOllama(model, [shortSys, ...history], ollamaUrl, tools);
         } else {
           throw err;
         }
       }
 
-      setMessages(prev => [...prev, mkMsg('assistant', reply)]);
+      const { content, toolCall } = result;
+      // T3.1 + T3.5: extract action from tool call (native) or fence (envelope)
+      const actionData = extractAction(content, toolCall);
+
+      if (actionData?.type === 'CREATE_SPRINT') {
+        // T3.2: merge LLM suggestions over computed defaults
+        const defaults   = computeNewSprintDefaults(state);
+        const sprintData = {
+          ...defaults,
+          name:            actionData.name            ?? defaults.name,
+          committedPoints: actionData.suggestedCommittedPoints ?? defaults.committedPoints,
+          notes:           actionData.notes            ?? '',
+          // startDate from LLM is advisory; trust defaults for date consistency
+        };
+        // T3.3: render prose above the SprintPreviewCard
+        const prose = stripActionFence(content).trim();
+        setMessages(prev => [...prev, mkMsg('assistant', prose, {
+          action: { type: 'CREATE_SPRINT', data: sprintData, status: 'pending' },
+        })]);
+      } else {
+        setMessages(prev => [...prev, mkMsg('assistant', content)]);
+      }
     } catch (err) {
       const isNetwork = err.message.includes('fetch') || err.message.includes('Failed') || err.message.includes('NetworkError');
       const display   = isNetwork
@@ -147,7 +257,7 @@ function AgentBuddyPanel() {
     } finally {
       setLoading(false);
     }
-  }, [input, loading, ollamaOnline, messages, state, model, ollamaUrl]);
+  }, [input, loading, ollamaOnline, messages, state, model, ollamaUrl, toolsEnabled]);
 
   const statusLabel = ollamaOnline === true ? 'Online' : ollamaOnline === false ? 'Offline' : '…';
   const statusMod   = ollamaOnline === true ? 'online' : ollamaOnline === false ? 'offline' : 'unknown';
@@ -189,14 +299,12 @@ function AgentBuddyPanel() {
               ))
             }
 
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`buddy-bubble buddy-bubble--${msg.role}${msg.error ? ' buddy-bubble--error' : ''}`}
-              >
-                {msg.content}
-              </div>
-            ))}
+            {messages.map(msg => <MessageBubble
+              key={msg.id}
+              msg={msg}
+              onConfirm={handleConfirmSprint}
+              onCancel={handleCancelSprint}
+            />)}
 
             {loading && (
               <div className="buddy-bubble buddy-bubble--assistant buddy-bubble--loading" aria-label="Thinking">
@@ -229,6 +337,60 @@ function AgentBuddyPanel() {
         </div>
       )}
     </>
+  );
+}
+
+// ── Message bubble (handles plain text + action cards) ────────────────────────
+
+function MessageBubble({ msg, onConfirm, onCancel }) {
+  const { action } = msg;
+
+  if (action?.status === 'pending') {
+    return (
+      <div className="buddy-action-group">
+        {msg.content && (
+          <div className="buddy-bubble buddy-bubble--assistant">{msg.content}</div>
+        )}
+        <SprintPreviewCard
+          sprintData={action.data}
+          onConfirm={data => onConfirm(msg.id, data)}
+          onCancel={() => onCancel(msg.id)}
+          confirming={false}
+        />
+      </div>
+    );
+  }
+
+  if (action?.status === 'confirmed') {
+    return (
+      <div className="buddy-action-group">
+        {msg.content && (
+          <div className="buddy-bubble buddy-bubble--assistant">{msg.content}</div>
+        )}
+        <div className="buddy-bubble buddy-bubble--assistant buddy-bubble--success">
+          ✓ {action.data.name} created and added to your sprints.
+        </div>
+      </div>
+    );
+  }
+
+  if (action?.status === 'cancelled') {
+    return (
+      <div className="buddy-action-group">
+        {msg.content && (
+          <div className="buddy-bubble buddy-bubble--assistant">{msg.content}</div>
+        )}
+        <div className="buddy-bubble buddy-bubble--assistant buddy-bubble--muted">
+          Sprint creation cancelled.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`buddy-bubble buddy-bubble--${msg.role}${msg.error ? ' buddy-bubble--error' : ''}`}>
+      {msg.content}
+    </div>
   );
 }
 
