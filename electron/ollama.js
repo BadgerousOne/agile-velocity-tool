@@ -166,6 +166,12 @@ export async function downloadBinary() {
 
   unlinkSync(tgzPath);
   await chmod(bin, 0o755);
+
+  // Remove the quarantine attribute macOS adds to downloaded files; without this
+  // Gatekeeper blocks execution on first launch even though Ollama is a signed binary.
+  await new Promise(resolve => {
+    execFile('/usr/bin/xattr', ['-d', 'com.apple.quarantine', bin], () => resolve());
+  });
 }
 
 // ── Model pull (T2.4) ─────────────────────────────────────────────────────────

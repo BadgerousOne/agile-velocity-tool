@@ -7,8 +7,23 @@
   "electron-builder": {
     "appId": "com.agile-velocity-tool",
     "productName": "Agile Velocity Tool",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
     "mac": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "icon": "build/icon.icns",
+      "target": [
+        { "target": "dmg", "arch": ["universal"] }
+      ],
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "${productName} ${version}"
     },
     "extraResources": [
       { "from": "electron/splash.html", "to": "splash.html" }
@@ -19,7 +34,7 @@
     "dev:browser": "vite",
     "build": "electron-vite build",
     "build:standalone": "vite build --config vite.standalone.js",
-    "build:dmg": "electron-vite build && electron-builder",
+    "build:dmg": "electron-vite build && electron-builder --universal",
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest",

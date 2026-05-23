@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import {
@@ -104,9 +104,38 @@ async function setup() {
   }
 }
 
+// ── CSP hardening ─────────────────────────────────────────────────────────────
+
+function installCSP() {
+  // Skip in dev — the Vite HMR websocket and localhost URLs would be blocked otherwise.
+  if (isDev) return;
+
+  const CSP = [
+    "default-src 'self'",
+    "script-src 'self'",
+    // React uses inline style attributes; recharts injects SVG styles
+    "style-src 'self' 'unsafe-inline'",
+    // data: for inline SVG/images; blob: for chart canvas exports
+    "img-src 'self' data: blob:",
+    // Local Ollama + the four supported AI provider APIs
+    "connect-src 'self' http://127.0.0.1:11434 https://api.openai.com https://api.anthropic.com https://generativelanguage.googleapis.com",
+    "font-src 'self' data:",
+  ].join('; ');
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [CSP],
+      },
+    });
+  });
+}
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  installCSP();
   await setup();
 
   createWindow();
