@@ -8,7 +8,7 @@ export default defineConfig({
         input: './electron/main.js',
         output: {
           format: 'cjs',
-          entryFileNames: 'index.js',
+          entryFileNames: 'index.cjs',
         },
       },
     },
@@ -19,7 +19,7 @@ export default defineConfig({
         input: './electron/preload.js',
         output: {
           format: 'cjs',
-          entryFileNames: 'index.js',
+          entryFileNames: 'index.cjs',
         },
       },
     },
