@@ -9,7 +9,10 @@
     "productName": "Agile Velocity Tool",
     "mac": {
       "minimumSystemVersion": "13.0"
-    }
+    },
+    "extraResources": [
+      { "from": "electron/splash.html", "to": "splash.html" }
+    ]
   },
   "scripts": {
     "dev": "electron-vite dev",

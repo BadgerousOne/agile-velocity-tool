@@ -1,10 +1,48 @@
 import { app, BrowserWindow } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { start as startOllama, stop as stopOllama, onStatus, getCurrentStatus } from './ollama.js';
+import {
+  start as startOllama,
+  stop as stopOllama,
+  onStatus,
+  getCurrentStatus,
+  downloadBinary,
+  pullModel,
+  DEFAULT_MODEL,
+} from './ollama.js';
+import { check as firstLaunchCheck } from './firstLaunch.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
+
+// ── Splash window (first-launch only) ────────────────────────────────────────
+
+function createSplash() {
+  const win = new BrowserWindow({
+    width: 480,
+    height: 300,
+    frame: false,
+    resizable: false,
+    center: true,
+    show: false,
+    webPreferences: {
+      // Internal-only window; nodeIntegration lets the inline script use ipcRenderer directly
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  // In dev, load from source; in production, splash.html is an extraResource
+  const splashPath = isDev
+    ? path.join(process.cwd(), 'electron', 'splash.html')
+    : path.join(process.resourcesPath, 'splash.html');
+
+  win.loadFile(splashPath);
+  win.once('ready-to-show', () => win.show());
+  return win;
+}
+
+// ── Main window ───────────────────────────────────────────────────────────────
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -36,13 +74,41 @@ function createWindow() {
     win.loadURL(rendererUrl);
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    win.loadFile(path.join(__dirname, '../out/renderer/index.html'));
+    win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
   return win;
 }
 
-app.whenReady().then(() => {
+// ── First-launch setup ────────────────────────────────────────────────────────
+
+async function setup() {
+  const { needsBinary, needsModel } = await firstLaunchCheck(DEFAULT_MODEL);
+  if (!needsBinary && !needsModel) return;
+
+  const splash    = createSplash();
+  const unsubSplash = onStatus(status => {
+    if (!splash.isDestroyed()) splash.webContents.send('ollama:status', status);
+  });
+
+  try {
+    if (needsBinary) await downloadBinary();
+    if (needsModel)  await pullModel(DEFAULT_MODEL);
+  } catch (err) {
+    console.error('[main] First-launch setup error:', err);
+    // Give the user time to read the error message before the splash closes
+    await new Promise(r => setTimeout(r, 4000));
+  } finally {
+    unsubSplash();
+    if (!splash.isDestroyed()) splash.close();
+  }
+}
+
+// ── App lifecycle ─────────────────────────────────────────────────────────────
+
+app.whenReady().then(async () => {
+  await setup();
+
   createWindow();
   startOllama().catch(err => console.error('[main] Ollama start error:', err));
 
