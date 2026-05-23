@@ -50,7 +50,9 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, '../preload/index.cjs'),
+      preload: isDev
+        ? path.join(__dirname, '../preload/index.cjs')
+        : path.join(process.resourcesPath, 'app.asar.unpacked', 'out', 'preload', 'index.cjs'),
     },
   });
 

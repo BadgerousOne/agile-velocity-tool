@@ -1,5 +1,6 @@
-import { spawn } from 'child_process';
+import { spawn, execFile } from 'child_process';
 import { existsSync } from 'fs';
+import { chmod } from 'fs/promises';
 import http from 'http';
 import path from 'path';
 import { app } from 'electron';
@@ -176,7 +177,19 @@ async function spawnServe() {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+async function prepareBinary() {
+  const bin = resolveBinary();
+  try {
+    await chmod(bin, 0o755);
+    // Clear quarantine so macOS Gatekeeper doesn't block the child process
+    await new Promise(resolve => execFile('/usr/bin/xattr', ['-d', 'com.apple.quarantine', bin], () => resolve()));
+  } catch {
+    // Non-fatal — binary may already be clear
+  }
+}
+
 export async function start() {
+  await prepareBinary();
   emit({ state: 'starting' });
 
   const already = await probePort();

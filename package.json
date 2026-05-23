@@ -18,7 +18,8 @@
     ],
     "asarUnpack": [
       "electron/splash.html",
-      "vendor/ollama"
+      "vendor/ollama",
+      "out/preload/index.cjs"
     ],
     "mac": {
       "minimumSystemVersion": "13.0",
