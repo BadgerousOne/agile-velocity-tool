@@ -10,6 +10,10 @@ import './AgentBuddy.css';
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_MODEL      = 'llama3.2';
 const MAX_HISTORY_TURNS  = 10; // keep last N user+assistant pairs in payload
+const HISTORY_MAX_MSGS   = 100;
+const HISTORY_MAX_BYTES  = 256 * 1024;
+
+const WELCOME_TEXT = "Hi! I'm Agent Buddy. I can analyze your sprint data, surface patterns, and help plan the next sprint. Try one of these to get started:";
 
 let _msgId = 0;
 const mkMsg = (role, content, extra = {}) => ({ id: ++_msgId, role, content, ...extra });
@@ -106,6 +110,89 @@ const FIRST_RUN_CHIPS = [
   'What are the biggest risks to our current pace?',
 ];
 
+// ── Persistence helpers ───────────────────────────────────────────────────────
+
+function loadFromStorage(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(({ role, content, chips, action }) =>
+      mkMsg(role, content, {
+        ...(chips  ? { chips }  : {}),
+        ...(action ? {
+          action: {
+            ...action,
+            // pending proposals are stale after a reload — downgrade to cancelled
+            status: action.status === 'pending' ? 'cancelled' : action.status,
+          },
+        } : {}),
+      })
+    );
+  } catch {
+    return [];
+  }
+}
+
+function persistMessages(storageKey, msgs) {
+  try {
+    const serializable = msgs
+      .filter(m => !m.transient)
+      .map(({ role, content, chips, action }) => ({
+        role,
+        content,
+        ...(chips  ? { chips }  : {}),
+        ...(action ? { action } : {}),
+      }));
+    let capped = serializable.slice(-HISTORY_MAX_MSGS);
+    let json   = JSON.stringify(capped);
+    // secondary byte-limit trim
+    while (json.length > HISTORY_MAX_BYTES && capped.length > 0) {
+      capped = capped.slice(1);
+      json   = JSON.stringify(capped);
+    }
+    localStorage.setItem(storageKey, json);
+  } catch {
+    // localStorage full or unavailable — fail silently
+  }
+}
+
+function welcomeMsg() {
+  return mkMsg('assistant', WELCOME_TEXT, { chips: FIRST_RUN_CHIPS, transient: true });
+}
+
+// ── History hook ──────────────────────────────────────────────────────────────
+
+function useBuddyHistory(activeWorkspaceId) {
+  const storageKey = `buddy_history_ws-${activeWorkspaceId}`;
+
+  const [messages, setMessages] = useState(() => {
+    const stored = loadFromStorage(storageKey);
+    return stored.length > 0 ? stored : [welcomeMsg()];
+  });
+
+  const prevKeyRef = useRef(storageKey);
+
+  useEffect(() => {
+    if (prevKeyRef.current !== storageKey) {
+      // Workspace switched — load incoming workspace's history, don't persist old messages
+      prevKeyRef.current = storageKey;
+      const stored = loadFromStorage(storageKey);
+      setMessages(stored.length > 0 ? stored : [welcomeMsg()]);
+      return;
+    }
+    persistMessages(storageKey, messages);
+  }, [messages, storageKey]);
+
+  const clearHistory = useCallback(() => {
+    localStorage.removeItem(storageKey);
+    setMessages([welcomeMsg()]);
+  }, [storageKey]);
+
+  return [messages, setMessages, clearHistory];
+}
+
 // ── Feature-flag wrapper ──────────────────────────────────────────────────────
 
 export default function AgentBuddy() {
@@ -130,16 +217,7 @@ function AgentBuddyPanel() {
   const [open, setOpen]         = useState(false);
   // T4.2: start minimized on mobile so the panel doesn't cover the full viewport on open
   const [minimized, setMinimized] = useState(() => window.innerWidth < 768);
-  const [messages, setMessages] = useState(() => {
-    if (!localStorage.getItem('buddy_first_opened')) {
-      localStorage.setItem('buddy_first_opened', 'true');
-      return [mkMsg('assistant',
-        "Hi! I’m Agent Buddy. I can analyze your sprint data, surface patterns, and help plan the next sprint. Try one of these to get started:",
-        { chips: FIRST_RUN_CHIPS },
-      )];
-    }
-    return [];
-  });
+  const [messages, setMessages, clearHistory] = useBuddyHistory(activeWorkspaceId);
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   // L4: initialize from localStorage so M4 settings hookup is a one-liner
@@ -152,11 +230,6 @@ function AgentBuddyPanel() {
   const undismissedCount = alerts.filter(a => !dismissedAlerts.has(a.title)).length;
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
-
-  // T4.3: reset conversation when the user switches workspaces
-  useEffect(() => {
-    setMessages([]);
-  }, [activeWorkspaceId]);
 
   // Compute health signals at mount and on data change — drives badge count even when panel is closed
   useEffect(() => {
@@ -220,19 +293,20 @@ function AgentBuddyPanel() {
     setMessages(msgs => msgs.map(m =>
       m.id === msgId ? { ...m, action: { ...m.action, status: 'confirmed' } } : m
     ));
-  }, [dispatch]);
+  }, [dispatch, setMessages]);
 
   const handleCancelSprint = useCallback((msgId) => {
     setMessages(msgs => msgs.map(m =>
       m.id === msgId ? { ...m, action: { ...m.action, status: 'cancelled' } } : m
     ));
-  }, []);
+  }, [setMessages]);
 
   const sendMessage = useCallback(async (text) => {
     if (!text || loading || ollamaOnline === false) return;
 
+    // Strip transient welcome message before adding real conversation
     const userMsg  = mkMsg('user', text);
-    const nextMsgs = [...messages, userMsg];
+    const nextMsgs = [...messages.filter(m => !m.transient), userMsg];
     setMessages(nextMsgs);
     setInput('');
     setLoading(true);
@@ -286,7 +360,7 @@ function AgentBuddyPanel() {
     } finally {
       setLoading(false);
     }
-  }, [loading, ollamaOnline, messages, state, model, ollamaUrl, toolsEnabled]);
+  }, [loading, ollamaOnline, messages, state, model, ollamaUrl, toolsEnabled, setMessages]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -330,6 +404,14 @@ function AgentBuddyPanel() {
               <span className={`buddy-status buddy-status--${statusMod}`} aria-label={`Ollama ${statusLabel}`}>
                 ● {statusLabel}
               </span>
+              <button
+                className="buddy-panel-clear"
+                onClick={clearHistory}
+                aria-label="Clear conversation history"
+                title="Clear history"
+              >
+                ⊘
+              </button>
               {/* T4.2: expand/collapse toggle for mobile */}
               <button
                 className="buddy-panel-toggle"

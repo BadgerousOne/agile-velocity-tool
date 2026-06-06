@@ -32,7 +32,7 @@
 | WS-20260606-002 | Agent Buddy user discovery, onboarding, and persistent health signals | P1 | COMPLETE | COMPLETE | 2026-06-06 |
 | WS-20260606-003 | Jira and Azure DevOps native sprint sync | P2 | SHIPPED | SHIPPED | 2026-06-06 |
 | WS-20260606-004 | Align Ollama URL config between Electron main and Settings UI | P2 | SHIPPED | SHIPPED | 2026-06-06 |
-| WS-20260606-005 | Persist Agent Buddy conversation history across page reloads | P2 | DISCOVERY | ACTIVE | 2026-06-06 |
+| WS-20260606-005 | Persist Agent Buddy conversation history across page reloads | P2 | COMPLETE | COMPLETE | 2026-06-06 |
 
 ---
 
