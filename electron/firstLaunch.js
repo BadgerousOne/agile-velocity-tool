@@ -1,18 +1,16 @@
-import { execFile } from 'child_process';
-import { resolveBinary } from './ollama.js';
+import { existsSync } from 'fs';
+import { writeFile } from 'fs/promises';
+import path from 'path';
+import { app } from 'electron';
 
-function modelInstalled(binaryPath, modelName) {
-  return new Promise(resolve => {
-    execFile(binaryPath, ['list'], { timeout: 10000 }, (err, stdout) => {
-      if (err) { resolve(false); return; }
-      resolve(stdout.split('\n').some(line =>
-        line.toLowerCase().startsWith(modelName.toLowerCase())
-      ));
-    });
-  });
+// A flag file written after a successful first-launch setup.
+// Faster and more reliable than shelling out to `ollama list`.
+const flagFile = () => path.join(app.getPath('userData'), '.setup_complete');
+
+export function isSetupComplete() {
+  return existsSync(flagFile());
 }
 
-export async function check(modelName = 'llama3.2') {
-  const needsModel = !(await modelInstalled(resolveBinary(), modelName));
-  return { needsModel };
+export async function markSetupComplete() {
+  await writeFile(flagFile(), new Date().toISOString(), 'utf8');
 }

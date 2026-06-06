@@ -7,9 +7,10 @@ import {
   onStatus,
   getCurrentStatus,
   pullModel,
+  prepareBinary,
   DEFAULT_MODEL,
 } from './ollama.js';
-import { check as firstLaunchCheck } from './firstLaunch.js';
+import { isSetupComplete, markSetupComplete } from './firstLaunch.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -36,6 +37,13 @@ function createSplash() {
     : path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'splash.html');
 
   win.loadFile(splashPath);
+
+  // Sync current status once the splash page has loaded so it doesn't miss
+  // events that fired before the webContents was ready.
+  win.webContents.once('did-finish-load', () => {
+    if (!win.isDestroyed()) win.webContents.send('ollama:status', getCurrentStatus());
+  });
+
   win.once('ready-to-show', () => win.show());
   return win;
 }
@@ -105,19 +113,30 @@ function installCSP() {
 // ── First-launch setup (model download only) ──────────────────────────────────
 
 async function setup() {
-  const { needsModel } = await firstLaunchCheck(DEFAULT_MODEL);
-  if (!needsModel) return;
+  await prepareBinary();
 
-  const splash     = createSplash();
+  // Fast flag-file check — avoids shelling out to `ollama list` on every launch.
+  if (isSetupComplete()) return;
+
+  const splash = createSplash();
   const unsubSplash = onStatus(status => {
     if (!splash.isDestroyed()) splash.webContents.send('ollama:status', status);
   });
 
   try {
+    await startOllama();
+
+    // Don't attempt the model pull if the server failed to start.
+    if (getCurrentStatus().state !== 'ready') {
+      await new Promise(r => setTimeout(r, 6000));
+      return;
+    }
+
     await pullModel(DEFAULT_MODEL);
+    await markSetupComplete();
   } catch (err) {
-    console.error('[main] Model pull error:', err);
-    await new Promise(r => setTimeout(r, 4000));
+    console.error('[main] First-launch setup error:', err);
+    await new Promise(r => setTimeout(r, 6000));
   } finally {
     unsubSplash();
     if (!splash.isDestroyed()) splash.close();
@@ -128,10 +147,16 @@ async function setup() {
 
 app.whenReady().then(async () => {
   installCSP();
+
+  // setup() starts Ollama internally when a model pull is needed.
+  // If setup returned early (model already present), status is still 'idle'
+  // and we need to start Ollama now.
   await setup();
+  if (getCurrentStatus().state === 'idle') {
+    startOllama().catch(err => console.error('[main] Ollama start error:', err));
+  }
 
   createWindow();
-  startOllama().catch(err => console.error('[main] Ollama start error:', err));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

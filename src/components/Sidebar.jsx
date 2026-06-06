@@ -18,15 +18,18 @@ const NAV_ITEMS = [
 export default function Sidebar() {
   const { state, dispatch } = useVelocity();
 
+  const isElectron = typeof window.ollamaApi !== 'undefined';
+
   const [buddyEnabled, setBuddyEnabled] = useState(
-    () => localStorage.getItem('buddy_enabled') === 'true'
+    () => isElectron && localStorage.getItem('buddy_enabled') === 'true'
   );
 
   useEffect(() => {
+    if (!isElectron) return;
     const handler = () => setBuddyEnabled(localStorage.getItem('buddy_enabled') === 'true');
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
-  }, []);
+  }, [isElectron]);
 
   // If the AI Assistant tab is active when the buddy is enabled, redirect away.
   useEffect(() => {

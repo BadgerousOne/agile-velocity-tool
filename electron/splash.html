@@ -14,13 +14,47 @@ body {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  gap: 16px;
+  gap: 14px;
   user-select: none;
   -webkit-app-region: drag;
 }
 h1 { font-size: 20px; font-weight: 600; color: #fff; }
 .subtitle { font-size: 12px; color: #7070a0; letter-spacing: 0.05em; text-transform: uppercase; }
-.phase { font-size: 13px; color: #c0c0d0; min-height: 18px; }
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #5050708;
+  transition: color 0.2s;
+}
+.step.active { color: #c0c0e0; }
+.step.done   { color: #6366f1; }
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2a2a4a;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+.step.active .step-dot { background: #6366f1; }
+.step.done   .step-dot { background: #6366f1; }
+.step.active { font-weight: 500; }
+
+.phase {
+  font-size: 13px;
+  color: #c0c0d0;
+  min-height: 18px;
+  text-align: center;
+}
 .progress-track {
   width: 320px;
   height: 5px;
@@ -35,25 +69,59 @@ h1 { font-size: 20px; font-weight: 600; color: #fff; }
   width: 0%;
   transition: width 0.25s ease;
 }
-.bytes { font-size: 11px; color: #6060a0; font-variant-numeric: tabular-nums; min-height: 16px; }
-.error-msg { color: #f87171; font-size: 12px; text-align: center; max-width: 320px; line-height: 1.5; }
+.bytes {
+  font-size: 11px;
+  color: #6060a0;
+  font-variant-numeric: tabular-nums;
+  min-height: 16px;
+  text-align: center;
+}
+.one-time {
+  font-size: 11px;
+  color: #4a4a6a;
+  text-align: center;
+  min-height: 14px;
+}
+.error-msg {
+  color: #f87171;
+  font-size: 12px;
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.5;
+}
 </style>
 </head>
 <body>
 <h1>Agile Velocity Tool</h1>
 <p class="subtitle">First-time setup</p>
-<p class="phase" id="phase">Preparing…</p>
+
+<div class="steps">
+  <div class="step active" id="step1">
+    <div class="step-dot"></div>
+    <span>Start Ollama AI engine</span>
+  </div>
+  <div class="step" id="step2">
+    <div class="step-dot"></div>
+    <span>Download llama3.2 model (~2.2 GB)</span>
+  </div>
+</div>
+
+<p class="phase" id="phase">Setting up for first launch…</p>
 <div class="progress-track"><div class="progress-fill" id="bar"></div></div>
 <p class="bytes" id="bytes">&nbsp;</p>
+<p class="one-time" id="onetimeNote">&nbsp;</p>
 <p class="error-msg" id="err" style="display:none"></p>
 
 <script>
 const { ipcRenderer } = require('electron');
 
-const phaseEl = document.getElementById('phase');
-const barEl   = document.getElementById('bar');
-const bytesEl = document.getElementById('bytes');
-const errEl   = document.getElementById('err');
+const phaseEl    = document.getElementById('phase');
+const barEl      = document.getElementById('bar');
+const bytesEl    = document.getElementById('bytes');
+const noteEl     = document.getElementById('onetimeNote');
+const errEl      = document.getElementById('err');
+const step1El    = document.getElementById('step1');
+const step2El    = document.getElementById('step2');
 
 function fmt(n) {
   if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
@@ -62,26 +130,40 @@ function fmt(n) {
   return n + ' B';
 }
 
+function setStep(active) {
+  step1El.className = active === 1 ? 'step active' : 'step done';
+  step2El.className = active === 2 ? 'step active' : (active > 2 ? 'step done' : 'step');
+}
+
 ipcRenderer.on('ollama:status', (_, s) => {
-  if (s.state === 'downloading') {
-    phaseEl.textContent = s.phase === 'binary'
-      ? 'Downloading Ollama…'
-      : 'Downloading llama3.2 model…';
+  if (s.state === 'starting') {
+    setStep(1);
+    phaseEl.textContent = 'Starting Ollama server…';
+    barEl.style.width   = '15%';
+    bytesEl.textContent = ' ';
+    noteEl.textContent  = ' ';
+  } else if (s.state === 'ready') {
+    setStep(2);
+    phaseEl.textContent = 'Ollama ready — preparing model download…';
+    barEl.style.width   = '20%';
+    bytesEl.textContent = ' ';
+    noteEl.textContent  = 'This download only happens once.';
+  } else if (s.state === 'downloading') {
+    setStep(2);
+    phaseEl.textContent = 'Downloading llama3.2 model…';
     const pct = s.total > 0 ? Math.min(100, (s.downloaded / s.total) * 100) : 0;
-    barEl.style.width = pct + '%';
+    barEl.style.width   = (20 + pct * 0.8) + '%';
     bytesEl.textContent = s.total > 0
-      ? `${fmt(s.downloaded)} / ${fmt(s.total)}`
-      : (s.downloaded > 0 ? fmt(s.downloaded) : ' ');
+      ? `${fmt(s.downloaded)} / ${fmt(s.total)}  (${Math.round(pct)}%)`
+      : (s.downloaded > 0 ? fmt(s.downloaded) : ' ');
+    noteEl.textContent = 'This download only happens once.';
   } else if (s.state === 'error') {
-    phaseEl.textContent = 'Setup failed';
-    barEl.style.width = '0%';
-    bytesEl.textContent = ' ';
-    errEl.textContent = (s.message ?? 'Setup error.') + ' The app will open — AI features require Ollama.';
-    errEl.style.display = 'block';
-  } else if (s.state === 'starting') {
-    phaseEl.textContent = 'Starting Ollama…';
-    barEl.style.width = '100%';
-    bytesEl.textContent = ' ';
+    phaseEl.textContent    = 'Setup encountered an error';
+    barEl.style.width      = '0%';
+    bytesEl.textContent    = ' ';
+    noteEl.textContent     = ' ';
+    errEl.textContent      = (s.message ?? 'Setup error.') + ' The app will open — AI features require Ollama.';
+    errEl.style.display    = 'block';
   }
 });
 </script>

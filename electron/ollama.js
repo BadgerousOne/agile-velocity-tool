@@ -1,6 +1,6 @@
 import { spawn, execFile } from 'child_process';
 import { existsSync } from 'fs';
-import { chmod } from 'fs/promises';
+import { chmod, appendFile, mkdir } from 'fs/promises';
 import http from 'http';
 import path from 'path';
 import { app } from 'electron';
@@ -63,8 +63,19 @@ export function resolveBinary() {
   return 'ollama'; // last resort: PATH
 }
 
-const ollamaHome = () =>
+export const ollamaHome = () =>
   path.join(app.getPath('userData'), 'ollama', 'home');
+
+// ── Diagnostic log ────────────────────────────────────────────────────────────
+
+async function log(msg) {
+  try {
+    const dir = app.getPath('userData');
+    await mkdir(dir, { recursive: true });
+    const line = `[${new Date().toISOString()}] ${msg}\n`;
+    await appendFile(path.join(dir, 'ollama.log'), line, 'utf8');
+  } catch { /* non-fatal */ }
+}
 
 // ── Model pull ────────────────────────────────────────────────────────────────
 
@@ -145,46 +156,62 @@ async function spawnServe() {
   const bin = resolveBinary();
   const env = { ...process.env, OLLAMA_HOME: ollamaHome() };
 
+  await log(`spawnServe: binary=${bin} exists=${existsSync(bin)}`);
+
+  let spawnFailed = false;
+
   ollamaProcess = spawn(bin, ['serve'], { env, stdio: 'ignore' });
   ownedByApp    = true;
 
   ollamaProcess.on('error', err => {
-    console.error('[ollama] spawn error:', err.message);
-    emit({ state: 'error', message: `Could not start Ollama: ${err.message}`, retryable: false });
+    spawnFailed = true;
+    const msg = `Could not start Ollama: ${err.message}`;
+    log(msg);
+    emit({ state: 'error', message: msg, retryable: false });
   });
 
   ollamaProcess.on('exit', (code, signal) => {
+    log(`ollama process exited: code=${code} signal=${signal} owned=${ownedByApp}`);
     if (ownedByApp && signal !== 'SIGTERM') {
-      console.warn(`[ollama] process exited unexpectedly (code ${code})`);
       ollamaProcess = null;
       ownedByApp    = false;
       emit({ state: 'error', message: 'Ollama stopped unexpectedly.', retryable: true });
-      // Watchdog will pick this up and restart within 30 s
     }
   });
 
-  // Poll until ready (max 15 s, 500 ms interval)
-  for (let i = 0; i < 30; i++) {
+  // Poll until ready (max 30 s, 500 ms interval). Abort immediately if spawn failed.
+  for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 500));
+    if (spawnFailed) {
+      await log('spawnServe: aborting poll — spawn error');
+      return;
+    }
     if (await probePort()) {
+      await log('spawnServe: port ready');
       emit({ state: 'ready' });
       return;
     }
   }
 
+  await log('spawnServe: timed out after 30 s');
   emit({ state: 'error', message: 'Ollama did not become ready in time.', retryable: true });
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-async function prepareBinary() {
+export async function prepareBinary() {
   const bin = resolveBinary();
+  await log(`prepareBinary: path=${bin}`);
   try {
     await chmod(bin, 0o755);
+    await log('prepareBinary: chmod 755 ok');
     // Clear quarantine so macOS Gatekeeper doesn't block the child process
-    await new Promise(resolve => execFile('/usr/bin/xattr', ['-d', 'com.apple.quarantine', bin], () => resolve()));
-  } catch {
-    // Non-fatal — binary may already be clear
+    await new Promise(resolve => execFile('/usr/bin/xattr', ['-d', 'com.apple.quarantine', bin], (err) => {
+      log(`prepareBinary: xattr result err=${err?.message ?? 'none'}`);
+      resolve();
+    }));
+  } catch (err) {
+    await log(`prepareBinary: error ${err?.message}`);
   }
 }
 
@@ -194,7 +221,7 @@ export async function start() {
 
   const already = await probePort();
   if (already) {
-    console.log('[ollama] adopted existing instance on :11434');
+    await log('start: adopted existing instance on :11434');
     ownedByApp = false;
     emit({ state: 'ready' });
     startWatchdog();
