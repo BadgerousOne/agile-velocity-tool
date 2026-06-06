@@ -74,6 +74,7 @@ async function openPanel() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  localStorage.clear();
   localStorage.setItem('buddy_enabled', 'true');
   sessionStorage.removeItem('buddy_sprints_created');
   mockDispatch.mockClear();
@@ -81,7 +82,127 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  localStorage.removeItem('buddy_enabled');
+  localStorage.clear();
+});
+
+// ── History persistence tests ─────────────────────────────────────────────────
+
+describe('history persistence', () => {
+  const HISTORY_KEY = 'buddy_history_ws-ws-1';
+
+  function seedHistory(msgs) {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(msgs));
+  }
+
+  it('loads stored history from localStorage on mount', async () => {
+    seedHistory([
+      { role: 'user',      content: 'What is our velocity?' },
+      { role: 'assistant', content: 'Your velocity is 30 points.' },
+    ]);
+
+    global.fetch.mockRejectedValue(new Error('offline'));
+    render(<AgentBuddy />);
+    await openPanel();
+
+    expect(screen.getByText('What is our velocity?')).toBeInTheDocument();
+    expect(screen.getByText('Your velocity is 30 points.')).toBeInTheDocument();
+  });
+
+  it('shows welcome message when no history exists', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    render(<AgentBuddy />);
+    await openPanel();
+
+    expect(screen.getByText(/Hi! I'm Agent Buddy/i)).toBeInTheDocument();
+  });
+
+  it('persists new messages to localStorage after a send', async () => {
+    global.fetch.mockImplementation((url) => {
+      if (url.includes('/api/version')) return makeVersionOk();
+      return makeChatOk('Velocity looks great!');
+    });
+
+    render(<AgentBuddy />);
+    const user = await openPanel();
+    await waitFor(() => expect(screen.getByLabelText('Message input')).not.toBeDisabled());
+
+    await user.type(screen.getByLabelText('Message input'), 'How are we doing?');
+    await user.click(screen.getByLabelText('Send message'));
+    await waitFor(() => expect(screen.getByText('Velocity looks great!')).toBeInTheDocument());
+
+    const stored = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    expect(stored.some(m => m.role === 'user' && m.content === 'How are we doing?')).toBe(true);
+    expect(stored.some(m => m.role === 'assistant' && m.content === 'Velocity looks great!')).toBe(true);
+  });
+
+  it('downgrade pending sprint action to cancelled on reload', async () => {
+    seedHistory([
+      { role: 'assistant', content: 'Here is a sprint:', action: { type: 'CREATE_SPRINT', data: {}, status: 'pending' } },
+    ]);
+
+    global.fetch.mockRejectedValue(new Error('offline'));
+    render(<AgentBuddy />);
+    await openPanel();
+
+    expect(screen.getByText('Sprint creation cancelled.')).toBeInTheDocument();
+  });
+
+  it('caps stored history at 100 messages', async () => {
+    const many = Array.from({ length: 110 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: `msg ${i}`,
+    }));
+    seedHistory(many);
+
+    global.fetch.mockImplementation((url) => {
+      if (url.includes('/api/version')) return makeVersionOk();
+      return makeChatOk('ok');
+    });
+
+    render(<AgentBuddy />);
+    const user = await openPanel();
+    await waitFor(() => expect(screen.getByLabelText('Message input')).not.toBeDisabled());
+
+    await user.type(screen.getByLabelText('Message input'), 'ping');
+    await user.click(screen.getByLabelText('Send message'));
+    await waitFor(() => expect(screen.getByText('ok')).toBeInTheDocument());
+
+    const stored = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    expect(stored.length).toBeLessThanOrEqual(100);
+  });
+
+  it('clears history and shows welcome message when Clear button is clicked', async () => {
+    seedHistory([
+      { role: 'user',      content: 'Saved message' },
+      { role: 'assistant', content: 'Saved reply' },
+    ]);
+
+    global.fetch.mockRejectedValue(new Error('offline'));
+    render(<AgentBuddy />);
+    const user = await openPanel();
+
+    expect(screen.getByText('Saved message')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Clear conversation history/i }));
+
+    expect(screen.queryByText('Saved message')).not.toBeInTheDocument();
+    expect(screen.getByText(/Hi! I'm Agent Buddy/i)).toBeInTheDocument();
+    // persist effect writes [] for the transient-only welcome — either null or [] means no real history
+    const stored = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    expect(stored.length).toBe(0);
+  });
+
+  it('welcome message chips are not stored in localStorage', async () => {
+    global.fetch.mockRejectedValue(new Error('offline'));
+    render(<AgentBuddy />);
+    await openPanel();
+
+    // welcome message is present but transient — give the persist effect a moment to run
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      expect(stored.length).toBe(0);
+    });
+  });
 });
 
 describe('AgentBuddy', () => {
