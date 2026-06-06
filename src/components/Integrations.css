@@ -46,3 +46,39 @@
   color: var(--danger);
 }
 
+.sync-preview {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.sync-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.sync-preview-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.sync-row-dup {
+  opacity: 0.5;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+

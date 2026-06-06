@@ -11,7 +11,7 @@
  * Chart: Committed vs Completed bars + Rolling Avg line + Adj. Velocity dashed line.
  * Latest sprint banner shows committed, completed, FTEs, PTO, support, other.
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useVelocity } from '../context/VelocityContext';
 import {
   calcAverageVelocity, calcWeightedVelocity,
@@ -43,7 +43,18 @@ const TREND_META = {
 };
 
 export default function Dashboard() {
-  const { state } = useVelocity();
+  const { state, dispatch } = useVelocity();
+  const [nudgeDismissed, setNudgeDismissed] = useState(
+    () => localStorage.getItem('buddy_nudge_dismissed') === 'true'
+  );
+  const showNudge = !nudgeDismissed
+    && typeof window.ollamaApi !== 'undefined'
+    && localStorage.getItem('buddy_enabled') !== 'true';
+
+  function dismissNudge() {
+    localStorage.setItem('buddy_nudge_dismissed', 'true');
+    setNudgeDismissed(true);
+  }
   const { sprints, teamMembers, sprintDurationDays, supportImpactFactor, releasePlans } = state;
 
   const avg = useMemo(() => calcAverageVelocity(sprints), [sprints]);
@@ -110,6 +121,27 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
+      {showNudge && (
+        <div className="buddy-nudge" role="note">
+          <div className="buddy-nudge__body">
+            <span className="buddy-nudge__icon">🤖</span>
+            <span className="buddy-nudge__text">
+              <strong>Agent Buddy is available</strong> — ask questions about your sprints and get proactive health alerts, powered by your local Ollama instance.
+            </span>
+          </div>
+          <div className="buddy-nudge__actions">
+            <button
+              className="buddy-nudge__cta"
+              onClick={() => dispatch({ type: 'SET_TAB', tab: 'settings' })}
+            >
+              Enable in Settings →
+            </button>
+            <button className="buddy-nudge__dismiss" onClick={dismissNudge} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
       <div className="page-header">
         <div>
           <h1 className="page-title">Dashboard</h1>

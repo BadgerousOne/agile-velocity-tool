@@ -1,4 +1,4 @@
-import { reducer } from './VelocityContext';
+import { reducer, computeNewSprintDefaults } from './VelocityContext';
 
 const baseState = {
   regions: [{ id: 'r1', name: 'US' }],
@@ -328,5 +328,114 @@ describe('velocity reducer', () => {
     expect(audited.aiActionAudit[0].action).toBe('add_sprint');
   });
 
+  it('ADD_SPRINT does not allow overrides to replace the generated UUID', () => {
+    const next = reducer(baseState, { type: 'ADD_SPRINT', overrides: { id: 'custom-id' } });
+    expect(next.sprints[next.sprints.length - 1].id).not.toBe('custom-id');
+    expect(next.sprints[next.sprints.length - 1].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+  });
+
+});
+
+describe('computeNewSprintDefaults', () => {
+  const emptyState = {
+    regions: [],
+    holidays: [],
+    teamMembers: [],
+    sprints: [],
+    sprintDurationDays: 10,
+    supportImpactFactor: 0.8,
+  };
+
+  it('returns empty dates and empty memberCapacity when there are no sprints', () => {
+    const defaults = computeNewSprintDefaults(emptyState);
+    expect(defaults.startDate).toBe('');
+    expect(defaults.endDate).toBe('');
+    expect(defaults.memberCapacity).toEqual([]);
+    expect(defaults.committedPoints).toBe(0);
+    expect(defaults.completedPoints).toBe(0);
+  });
+
+  it('seeds memberCapacity from teamMembers when there is no previous sprint', () => {
+    const state = {
+      ...emptyState,
+      teamMembers: [
+        { id: 'm1', name: 'Alice', role: 'Developer', regionId: null },
+        { id: 'm2', name: 'Bob',   role: 'QA',        regionId: null },
+      ],
+    };
+    const defaults = computeNewSprintDefaults(state);
+    expect(defaults.memberCapacity).toHaveLength(2);
+    expect(defaults.memberCapacity[0].memberId).toBe('m1');
+    expect(defaults.memberCapacity[1].memberId).toBe('m2');
+    expect(defaults.memberCapacity[0].supportDays).toBe(0);
+    expect(defaults.memberCapacity[0].otherDays).toBe(0);
+  });
+
+  it('carries forward allocation and resets interruption fields from last sprint', () => {
+    const state = {
+      ...emptyState,
+      teamMembers: [{ id: 'm1', name: 'Alice', role: 'Developer', regionId: null }],
+      sprints: [{
+        id: 's1', name: 'Sprint 1',
+        startDate: '2026-01-05', endDate: '2026-01-18',
+        committedPoints: 20, completedPoints: 18,
+        memberCapacity: [{
+          memberId: 'm1', memberName: 'Alice',
+          allocation: 75, ptoDays: 2, holidayDays: 0, holidayNames: [],
+          supportDays: 1, otherDays: 1, otherLabel: 'Training',
+        }],
+      }],
+    };
+    const defaults = computeNewSprintDefaults(state);
+    expect(defaults.memberCapacity[0].allocation).toBe(75);
+    expect(defaults.memberCapacity[0].supportDays).toBe(0);
+    expect(defaults.memberCapacity[0].otherDays).toBe(0);
+    expect(defaults.memberCapacity[0].otherLabel).toBe('');
+  });
+
+  it('includes new team members not in the last sprint', () => {
+    const state = {
+      ...emptyState,
+      teamMembers: [
+        { id: 'm1', name: 'Alice', role: 'Developer', regionId: null },
+        { id: 'm2', name: 'Bob',   role: 'QA',        regionId: null },
+      ],
+      sprints: [{
+        id: 's1', name: 'Sprint 1',
+        startDate: '2026-01-05', endDate: '2026-01-18',
+        committedPoints: 20, completedPoints: 18,
+        memberCapacity: [
+          { memberId: 'm1', memberName: 'Alice', allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' },
+        ],
+      }],
+    };
+    const defaults = computeNewSprintDefaults(state);
+    const ids = defaults.memberCapacity.map(r => r.memberId);
+    expect(ids).toContain('m1');
+    expect(ids).toContain('m2');
+  });
+
+  it('calculates suggestedCommittedPoints using recency-weighted velocity', () => {
+    const state = {
+      ...emptyState,
+      teamMembers: [{ id: 'm1', name: 'Alice', role: 'Developer', regionId: null }],
+      sprints: [
+        { id: 's1', name: 'Sprint 1', startDate: '2026-01-05', endDate: '2026-01-18', committedPoints: 10, completedPoints: 10, memberCapacity: [{ memberId: 'm1', memberName: 'Alice', allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' }] },
+        { id: 's2', name: 'Sprint 2', startDate: '2026-01-19', endDate: '2026-02-01', committedPoints: 20, completedPoints: 20, memberCapacity: [{ memberId: 'm1', memberName: 'Alice', allocation: 100, ptoDays: 0, holidayDays: 0, holidayNames: [], supportDays: 0, otherDays: 0, otherLabel: '' }] },
+      ],
+    };
+    // Weighted: s1 weight=1 (10pts), s2 weight=2 (20pts) → (10+40)/3 = 16.67 → round = 17
+    const defaults = computeNewSprintDefaults(state);
+    expect(defaults.committedPoints).toBe(17);
+    expect(defaults.suggestedCommittedPoints).toBe(17);
+  });
+
+  it('returns name Sprint N where N = sprints.length + 1', () => {
+    const state = { ...emptyState, sprints: [{ id: 's1', name: 'Sprint 1', memberCapacity: [] }] };
+    const defaults = computeNewSprintDefaults(state);
+    expect(defaults.name).toBe('Sprint 2');
+  });
 });
 
