@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import {
@@ -8,6 +8,7 @@ import {
   getCurrentStatus,
   pullModel,
   prepareBinary,
+  setOllamaUrl,
   DEFAULT_MODEL,
 } from './ollama.js';
 import { isSetupComplete, markSetupComplete } from './firstLaunch.js';
@@ -96,7 +97,7 @@ function installCSP() {
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
-    "connect-src 'self' http://127.0.0.1:11434 https://api.openai.com https://api.anthropic.com https://generativelanguage.googleapis.com",
+    "connect-src 'self' http://127.0.0.1:11434 http://localhost:11434 https://api.openai.com https://api.anthropic.com https://generativelanguage.googleapis.com",
     "font-src 'self' data:",
   ].join('; ');
 
@@ -142,6 +143,10 @@ async function setup() {
     if (!splash.isDestroyed()) splash.close();
   }
 }
+
+// ── IPC handlers ──────────────────────────────────────────────────────────────
+
+ipcMain.handle('ollama:setUrl', (_event, url) => setOllamaUrl(url));
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
