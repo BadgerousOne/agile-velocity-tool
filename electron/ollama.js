@@ -10,6 +10,14 @@ import { app } from 'electron';
 export const OLLAMA_VERSION = '0.3.14';
 export const DEFAULT_MODEL  = 'llama3.2';
 
+// ── Configurable Ollama URL ───────────────────────────────────────────────────
+
+let _ollamaBaseUrl = 'http://localhost:11434';
+
+export function setOllamaUrl(url) {
+  if (url && typeof url === 'string') _ollamaBaseUrl = url.trim().replace(/\/$/, '');
+}
+
 // ── Status event bus ──────────────────────────────────────────────────────────
 
 let currentStatus = { state: 'idle' };
@@ -33,7 +41,7 @@ export function getCurrentStatus() {
 
 export function probePort() {
   return new Promise(resolve => {
-    const req = http.get('http://127.0.0.1:11434/api/version', { timeout: 2000 }, res => {
+    const req = http.get(`${_ollamaBaseUrl}/api/version`, { timeout: 2000 }, res => {
       resolve(res.statusCode === 200);
       res.resume();
     });
@@ -221,7 +229,7 @@ export async function start() {
 
   const already = await probePort();
   if (already) {
-    await log('start: adopted existing instance on :11434');
+    await log(`start: adopted existing instance on ${_ollamaBaseUrl}`);
     ownedByApp = false;
     emit({ state: 'ready' });
     startWatchdog();

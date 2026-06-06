@@ -7,7 +7,7 @@
  * Page routing is handled by a simple switch — no router library needed
  * since all state is in-memory/localStorage.
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { VelocityProvider, useVelocity } from './context/VelocityContext';
 import { WorkspaceProvider, useWorkspaces } from './context/WorkspaceContext';
 import Sidebar from './components/Sidebar';
@@ -25,6 +25,11 @@ import './App.css';
 
 function AppContent() {
   const { state } = useVelocity();
+
+  useEffect(() => {
+    const url = localStorage.getItem('buddy_ollama_url') || 'http://localhost:11434';
+    window.ollamaApi?.setUrl(url);
+  }, []);
 
   const renderPage = () => {
     switch (state.activeTab) {
