@@ -100,6 +100,12 @@ function extractAction(content, toolCall) {
   return parseActionEnvelope(content);
 }
 
+const FIRST_RUN_CHIPS = [
+  'How is our velocity trending?',
+  'Create the next sprint based on our recent velocity',
+  'What are the biggest risks to our current pace?',
+];
+
 // ── Feature-flag wrapper ──────────────────────────────────────────────────────
 
 export default function AgentBuddy() {
@@ -124,7 +130,16 @@ function AgentBuddyPanel() {
   const [open, setOpen]         = useState(false);
   // T4.2: start minimized on mobile so the panel doesn't cover the full viewport on open
   const [minimized, setMinimized] = useState(() => window.innerWidth < 768);
-  const [messages, setMessages] = useState([]); // { id, role, content, error?, action? }
+  const [messages, setMessages] = useState(() => {
+    if (!localStorage.getItem('buddy_first_opened')) {
+      localStorage.setItem('buddy_first_opened', 'true');
+      return [mkMsg('assistant',
+        "Hi! I’m Agent Buddy. I can analyze your sprint data, surface patterns, and help plan the next sprint. Try one of these to get started:",
+        { chips: FIRST_RUN_CHIPS },
+      )];
+    }
+    return [];
+  });
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   // L4: initialize from localStorage so M4 settings hookup is a one-liner
@@ -134,6 +149,7 @@ function AgentBuddyPanel() {
   const [toolsEnabled, setToolsEnabled] = useState(null);   // T3.5: null=unknown, true, false
   const [alerts, setAlerts]             = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState(() => new Set());
+  const undismissedCount = alerts.filter(a => !dismissedAlerts.has(a.title)).length;
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
 
@@ -142,26 +158,26 @@ function AgentBuddyPanel() {
     setMessages([]);
   }, [activeWorkspaceId]);
 
-  // Ollama status + health signals on panel open
+  // Compute health signals at mount and on data change — drives badge count even when panel is closed
+  useEffect(() => {
+    setAlerts(buildHealthSignals(state.sprints, state.sprintDurationDays, state.supportImpactFactor));
+  }, [state.sprints, state.sprintDurationDays, state.supportImpactFactor]);
+
+  // Probe Ollama connectivity when panel opens
   useEffect(() => {
     if (!open) return;
-
-    setAlerts(buildHealthSignals(state.sprints, state.sprintDurationDays, state.supportImpactFactor));
     setOllamaOnline(null);
 
-    // T1.5: Electron path — main process pushes status; no HTTP probe needed
     if (typeof window.ollamaApi !== 'undefined') {
       const handler = ({ state: s }) => setOllamaOnline(s === 'ready');
       window.ollamaApi.onStatus(handler);
       return () => window.ollamaApi.offStatus(handler);
     }
 
-    // Browser / standalone path — HTTP probe (unchanged)
     const ac = new AbortController();
     probeOllama(ollamaUrl, ac.signal).then(online => {
       if (ac.signal.aborted) return;
       setOllamaOnline(online);
-      // T3.5: probe tool calling once Ollama is confirmed reachable
       if (online && toolsEnabled === null) {
         probeToolCalling(model, ollamaUrl).then(supported => {
           if (!ac.signal.aborted) setToolsEnabled(supported);
@@ -169,7 +185,7 @@ function AgentBuddyPanel() {
       }
     });
     return () => ac.abort();
-  }, [open, ollamaUrl, model, toolsEnabled, state.sprints, state.sprintDurationDays, state.supportImpactFactor]);
+  }, [open, ollamaUrl, model, toolsEnabled]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -212,9 +228,7 @@ function AgentBuddyPanel() {
     ));
   }, []);
 
-  // N3: useCallback prevents unnecessary re-renders of children that receive this as a prop
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  const sendMessage = useCallback(async (text) => {
     if (!text || loading || ollamaOnline === false) return;
 
     const userMsg  = mkMsg('user', text);
@@ -226,12 +240,9 @@ function AgentBuddyPanel() {
     try {
       const context   = buildBuddyContext(state);
       const systemMsg = { role: 'system', content: buildSystemPrompt(context) };
-      // Keep last MAX_HISTORY_TURNS turns (each turn = user + assistant = 2 messages)
-      // History serializes only role + content for plain messages; action cards become prose
       const history = nextMsgs.slice(-(MAX_HISTORY_TURNS * 2)).map(({ role, content }) => ({ role, content }));
       const payload  = [systemMsg, ...history];
 
-      // T3.5: include tools when model has confirmed support
       const tools = toolsEnabled === true ? ACTION_DEFINITIONS : undefined;
 
       let result;
@@ -248,20 +259,16 @@ function AgentBuddyPanel() {
       }
 
       const { content, toolCall } = result;
-      // T3.1 + T3.5: extract action from tool call (native) or fence (envelope)
       const actionData = extractAction(content, toolCall);
 
       if (actionData?.type === 'CREATE_SPRINT') {
-        // T3.2: merge LLM suggestions over computed defaults
         const defaults   = computeNewSprintDefaults(state);
         const sprintData = {
           ...defaults,
           name:            actionData.name            ?? defaults.name,
           committedPoints: actionData.suggestedCommittedPoints ?? defaults.committedPoints,
           notes:           actionData.notes            ?? '',
-          // startDate from LLM is advisory; trust defaults for date consistency
         };
-        // T3.3: render prose above the SprintPreviewCard
         const prose = stripActionFence(content).trim();
         setMessages(prev => [...prev, mkMsg('assistant', prose, {
           action: { type: 'CREATE_SPRINT', data: sprintData, status: 'pending' },
@@ -279,7 +286,16 @@ function AgentBuddyPanel() {
     } finally {
       setLoading(false);
     }
-  }, [input, loading, ollamaOnline, messages, state, model, ollamaUrl, toolsEnabled]);
+  }, [loading, ollamaOnline, messages, state, model, ollamaUrl, toolsEnabled]);
+
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (text) sendMessage(text);
+  }, [input, sendMessage]);
+
+  const handleChipClick = useCallback((text) => {
+    sendMessage(text);
+  }, [sendMessage]);
 
   const statusLabel = ollamaOnline === true ? 'Online' : ollamaOnline === false ? 'Offline' : '…';
   const statusMod   = ollamaOnline === true ? 'online' : ollamaOnline === false ? 'offline' : 'unknown';
@@ -294,6 +310,11 @@ function AgentBuddyPanel() {
         title="Agent Buddy"
       >
         {open ? '✕' : '🤖'}
+        {!open && undismissedCount > 0 && (
+          <span className="buddy-fab-badge" aria-label={`${undismissedCount} health alerts`}>
+            {undismissedCount}
+          </span>
+        )}
       </button>
 
       {open && (
@@ -336,6 +357,8 @@ function AgentBuddyPanel() {
               msg={msg}
               onConfirm={handleConfirmSprint}
               onCancel={handleCancelSprint}
+              onChipClick={handleChipClick}
+              showChips={!messages.some(m => m.role === 'user')}
             />)}
 
             {loading && (
@@ -374,7 +397,7 @@ function AgentBuddyPanel() {
 
 // ── Message bubble (handles plain text + action cards) ────────────────────────
 
-function MessageBubble({ msg, onConfirm, onCancel }) {
+function MessageBubble({ msg, onConfirm, onCancel, onChipClick, showChips }) {
   const { action } = msg;
 
   if (action?.status === 'pending') {
@@ -422,6 +445,15 @@ function MessageBubble({ msg, onConfirm, onCancel }) {
   return (
     <div className={`buddy-bubble buddy-bubble--${msg.role}${msg.error ? ' buddy-bubble--error' : ''}`}>
       {msg.content}
+      {showChips && msg.chips?.length > 0 && (
+        <div className="buddy-chips">
+          {msg.chips.map(chip => (
+            <button key={chip} className="buddy-chip" onClick={() => onChipClick?.(chip)}>
+              {chip}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

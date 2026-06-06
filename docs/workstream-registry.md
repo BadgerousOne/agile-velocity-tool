@@ -9,7 +9,7 @@
 ## System Snapshot
 
 **Last scheduling pass:** 2026-06-06
-**Active workstreams:** 1
+**Active workstreams:** 2
 **Queued workstreams:** 0
 **Blocked workstreams:** 0
 **Paused workstreams:** 0
@@ -34,7 +34,9 @@
 
 | ID | Title | Type | Priority | Stage | Status | Agent Activity | Blocker | Target |
 |----|-------|------|----------|-------|--------|---------------|---------|--------|
-| WS-20260606-001 | Electron first-launch UX and macOS DMG distribution | feature | P1 | DISCOVERY | ACTIVE | Requirements definition | — | — |
+| WS-20260606-001 | Electron first-launch UX and macOS DMG distribution | feature | P1 | COMPLETE | COMPLETE | Committed `1db58b9` | — | 2026-06-06 |
+| WS-20260606-002 | Agent Buddy user discovery, onboarding, and persistent health signals | feature | P1 | DISCOVERY | ACTIVE | Requirements definition | — | — |
+| WS-20260606-003 | Jira and Azure DevOps native sprint sync | feature | P2 | DISCOVERY | ACTIVE | Awaiting Solution Lead | — | — |
 
 ---
 

@@ -12,8 +12,8 @@
 | Idea | Source | Captured | Priority hint | Status |
 |------|--------|----------|---------------|--------|
 | Complete Electron first-launch UX and macOS DMG distribution | onboarding analysis | 2026-06-06 | P1 | promoted → WS-20260606-001 |
-| Agent Buddy: user discovery, onboarding flow, and persistent health signal notifications | onboarding analysis | 2026-06-06 | P1 | open |
-| Jira and Azure DevOps native sprint sync (move beyond CSV workaround) | onboarding analysis | 2026-06-06 | P2 | open |
+| Agent Buddy: user discovery, onboarding flow, and persistent health signal notifications | onboarding analysis | 2026-06-06 | P1 | promoted → WS-20260606-002 |
+| Jira and Azure DevOps native sprint sync (move beyond CSV workaround) | onboarding analysis | 2026-06-06 | P2 | promoted → WS-20260606-003 |
 | Align Ollama URL configuration between Electron main process and Settings UI | onboarding analysis | 2026-06-06 | P2 | open |
 | Buddy conversation history persistence across page reloads | onboarding analysis | 2026-06-06 | P3 | open |
 
@@ -28,7 +28,9 @@
 
 | Workstream ID | Title | Priority | Stage | Status | Last event |
 |--------------|-------|----------|-------|--------|------------|
-| WS-20260606-001 | Electron first-launch UX and macOS DMG distribution | P1 | DISCOVERY | ACTIVE | 2026-06-06 |
+| WS-20260606-001 | Electron first-launch UX and macOS DMG distribution | P1 | COMPLETE | COMPLETE | 2026-06-06 |
+| WS-20260606-002 | Agent Buddy user discovery, onboarding, and persistent health signals | P1 | DISCOVERY | ACTIVE | 2026-06-06 |
+| WS-20260606-003 | Jira and Azure DevOps native sprint sync | P2 | DISCOVERY | ACTIVE | 2026-06-06 |
 
 ---
 
