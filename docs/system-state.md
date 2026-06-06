@@ -30,7 +30,7 @@
 |--------------|-------|----------|-------|--------|------------|
 | WS-20260606-001 | Electron first-launch UX and macOS DMG distribution | P1 | COMPLETE | COMPLETE | 2026-06-06 |
 | WS-20260606-002 | Agent Buddy user discovery, onboarding, and persistent health signals | P1 | COMPLETE | COMPLETE | 2026-06-06 |
-| WS-20260606-003 | Jira and Azure DevOps native sprint sync | P2 | COMPLETE | COMPLETE | 2026-06-06 |
+| WS-20260606-003 | Jira and Azure DevOps native sprint sync | P2 | SHIPPED | SHIPPED | 2026-06-06 |
 
 ---
 
