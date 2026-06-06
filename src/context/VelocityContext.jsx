@@ -638,6 +638,16 @@ export function reducer(state, action) {
       };
 
     // ── Integrations ───────────────────────────────────────────────────────
+    case 'IMPORT_SYNCED_SPRINTS': {
+      const existingNames = new Set(state.sprints.map(s => s.name));
+      const existingDates = new Set(state.sprints.map(s => `${s.startDate}::${s.endDate}`));
+      const newSprints = (action.sprints || [])
+        .filter(s => !existingNames.has(s.name) && !existingDates.has(`${s.startDate}::${s.endDate}`))
+        .map(s => ({ ...s, id: uuidv4(), memberCapacity: [] }));
+      const merged = [...state.sprints, ...newSprints]
+        .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+      return { ...state, sprints: merged };
+    }
     case 'UPDATE_INTEGRATION': {
       return {
         ...state,

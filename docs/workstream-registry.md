@@ -35,8 +35,8 @@
 | ID | Title | Type | Priority | Stage | Status | Agent Activity | Blocker | Target |
 |----|-------|------|----------|-------|--------|---------------|---------|--------|
 | WS-20260606-001 | Electron first-launch UX and macOS DMG distribution | feature | P1 | COMPLETE | COMPLETE | Committed `1db58b9` | — | 2026-06-06 |
-| WS-20260606-002 | Agent Buddy user discovery, onboarding, and persistent health signals | feature | P1 | DISCOVERY | ACTIVE | Requirements definition | — | — |
-| WS-20260606-003 | Jira and Azure DevOps native sprint sync | feature | P2 | DISCOVERY | ACTIVE | Awaiting Solution Lead | — | — |
+| WS-20260606-002 | Agent Buddy user discovery, onboarding, and persistent health signals | feature | P1 | COMPLETE | COMPLETE | Committed `987f8f6` | — | 2026-06-06 |
+| WS-20260606-003 | Jira and Azure DevOps native sprint sync | feature | P2 | COMPLETE | COMPLETE | PR ready on feat/jira-ado-sync | — | 2026-06-06 |
 
 ---
 
