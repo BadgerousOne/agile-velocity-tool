@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2026-06-06]
 
+### Fixed — WS-20260606-004: Align Ollama URL config between Electron main and Settings UI
+
+- Watchdog no longer hard-codes `127.0.0.1:11434` — it now uses the URL configured in Settings (`buddy_ollama_url`), communicated from the renderer to the main process via IPC on every launch
+- Production CSP `connect-src` now includes `http://localhost:11434` alongside `http://127.0.0.1:11434`, fixing a bug where all default renderer Ollama API calls were blocked in packaged builds
+- New IPC method: `window.ollamaApi.setUrl(url)` (no-op in browser mode via `?.` guard)
+
+
+
 ### Added — WS-20260606-003: Jira and Azure DevOps native sprint sync
 
 - **Sync Sprints** button in each provider card (visible when connected) — fetches live sprint data without any CSV export step

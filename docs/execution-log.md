@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-06-06 — WS-20260606-004 — Align Ollama URL config between Electron main and Settings UI
+
+**Type:** refactor · **Priority:** P2 · **Initiated by:** user
+**Merged:** `7e09885` on `main` · **PR:** #5 · **Issue:** #3 (closed)
+**Build:** passing · **Tests:** 105 passing
+
+**What shipped:**
+- `setOllamaUrl()` in `ollama.js` — module-level URL var consumed by `probePort()` and watchdog
+- `ipcMain.handle('ollama:setUrl')` in `main.js` — forwards renderer URL to main process
+- `window.ollamaApi.setUrl()` in `preload.js` — IPC bridge from renderer
+- `App.jsx` mount effect — sends stored URL before the first watchdog tick
+- CSP `connect-src` — added `http://localhost:11434` (was missing; blocked default renderer calls in prod)
+
+**Duration:** Idea promoted → shipped in 1 session (~1 hour pipeline)
+
+**Open items carried forward:**
+- Mid-session URL changes don't propagate to the watchdog until restart (documented, acceptable)
+- Non-localhost Ollama URLs not covered by the static CSP (out of scope)
+
+---
+
 ## 2026-06-06 — WS-20260606-003 — Jira and Azure DevOps native sprint sync
 
 **Type:** feature · **Priority:** P2 · **Initiated by:** user
